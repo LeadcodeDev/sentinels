@@ -68,6 +68,7 @@ pub struct Economy {
     pub gold: u32,
     pub score: u32,
     pub wave_number: u32,
+    pub pepites: u32,
 }
 
 pub struct GameState {
@@ -82,6 +83,7 @@ pub struct GameState {
     pub placement_mode: Option<TowerElement>,
     pub selected_tower: Option<usize>,
     pub elapsed: f32,
+    pub save_data: SaveData,
 }
 
 impl GameState {
@@ -98,12 +100,14 @@ impl GameState {
                 gold: 500 + bonus_gold,
                 score: 0,
                 wave_number: 0,
+                pepites: 0,
             },
             phase: GamePhase::Preparing,
             viewport_size: (1200.0, 800.0),
             placement_mode: None,
             selected_tower: None,
             elapsed: 0.0,
+            save_data: save_data.clone(),
         }
     }
 
@@ -281,11 +285,23 @@ impl GameState {
             }
         }
 
-        // 8. Remove dead enemies + award gold
+        // 8. Remove dead enemies + award gold + random pepite drops
         self.enemies.retain(|e| {
             if e.is_dead() {
                 self.economy.gold += e.gold_value;
                 self.economy.score += e.gold_value;
+                // Pepite drops: bosses always drop 3-5, others 10% chance for 1
+                if e.is_boss {
+                    use rand::Rng;
+                    let mut rng = rand::thread_rng();
+                    self.economy.pepites += rng.r#gen_range(3..=5);
+                } else {
+                    use rand::Rng;
+                    let mut rng = rand::thread_rng();
+                    if rng.r#gen_range(0..100) < 10 {
+                        self.economy.pepites += 1;
+                    }
+                }
                 false
             } else {
                 true
@@ -311,6 +327,15 @@ impl GameState {
         if self.player.hp <= 0.0 {
             self.player.hp = 0.0;
             self.phase = GamePhase::GameOver;
+            // Transfer pepites to persistent save
+            self.save_data.pepites += self.economy.pepites;
+            if self.economy.score > self.save_data.best_score {
+                self.save_data.best_score = self.economy.score;
+            }
+            if self.economy.wave_number > self.save_data.max_wave {
+                self.save_data.max_wave = self.economy.wave_number;
+            }
+            self.save_data.save();
         }
     }
 
@@ -367,6 +392,43 @@ impl GameState {
             self.phase = GamePhase::Active;
             self.economy.wave_number = self.wave_manager.current_wave;
         }
+    }
+
+    pub fn upgrade_tower(
+        &mut self,
+        tower_idx: usize,
+        upgrade_type: tower::TowerUpgradeType,
+    ) -> bool {
+        if tower_idx >= self.towers.len() {
+            return false;
+        }
+        let cost = {
+            let tower = &self.towers[tower_idx];
+            let upgrade = tower
+                .upgrades
+                .iter()
+                .find(|u| u.upgrade_type == upgrade_type);
+            match upgrade {
+                Some(u) if u.level < u.max_level => u.cost(),
+                _ => return false,
+            }
+        };
+        if self.economy.gold < cost {
+            return false;
+        }
+        self.economy.gold -= cost;
+        self.towers[tower_idx].apply_upgrade(upgrade_type);
+        true
+    }
+
+    pub fn sell_tower(&mut self, tower_idx: usize) {
+        if tower_idx >= self.towers.len() {
+            return;
+        }
+        let value = self.towers[tower_idx].sell_value();
+        self.economy.gold += value;
+        self.towers.remove(tower_idx);
+        self.selected_tower = None;
     }
 }
 

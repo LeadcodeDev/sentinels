@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct SaveData {
-    pub total_gold: u32,
+    pub pepites: u32,
     pub best_score: u32,
     pub max_wave: u32,
     pub shop_upgrades: Vec<ShopUpgradeState>,
@@ -103,10 +103,10 @@ impl SaveData {
     }
 
     pub fn purchase_upgrade(&mut self, id: &str, cost: u32) {
-        if self.total_gold < cost {
+        if self.pepites < cost {
             return;
         }
-        self.total_gold -= cost;
+        self.pepites -= cost;
 
         if let Some(upgrade) = self.shop_upgrades.iter_mut().find(|u| u.id == id) {
             upgrade.level += 1;

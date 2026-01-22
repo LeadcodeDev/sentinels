@@ -1,10 +1,13 @@
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 use std::time::{Duration, Instant};
 
 use crate::data::SaveData;
+use crate::data::tower_presets::get_preset;
 use crate::game::GameState;
-use crate::render;
-use crate::ui::hud;
+use crate::game::Point2D;
+use crate::render::{self, PlacementPreview};
+use crate::ui::{hud, popover};
 
 pub enum PlayScreenEvent {
     ReturnToLobby,
@@ -60,6 +63,25 @@ impl PlayScreen {
         })
         .detach();
     }
+
+    fn get_placement_preview(&self) -> Option<PlacementPreview> {
+        let element = self.game_state.placement_mode?;
+        let cursor = self.cursor_pos?;
+        let sidebar_w = hud::sidebar_width();
+        let viewport = self.game_state.viewport_size;
+        let canvas_width = viewport.0 - sidebar_w;
+        let center_x = canvas_width / 2.0;
+        let center_y = viewport.1 / 2.0;
+        let game_x = f32::from(cursor.x) - center_x;
+        let game_y = f32::from(cursor.y) - center_y;
+        let preset = get_preset(element);
+
+        Some(PlacementPreview {
+            element,
+            game_pos: Point2D::new(game_x, game_y),
+            range: preset.base_range,
+        })
+    }
 }
 
 impl Render for PlayScreen {
@@ -72,45 +94,61 @@ impl Render for PlayScreen {
             f32::from(viewport_size.height),
         );
 
-        let game_canvas = render::render_game(&self.game_state, viewport_size);
-        let hud_overlay = hud::render_hud(&self.game_state, cx);
+        let placement_preview = self.get_placement_preview();
+        let game_canvas = render::render_game(&self.game_state, viewport_size, placement_preview);
+        let tower_popover = popover::render_tower_popover(&self.game_state, cx);
+
+        let left_click = cx.listener(|this, event: &MouseDownEvent, _window, _cx| {
+            let sidebar_w = hud::sidebar_width();
+            let viewport_size = this.game_state.viewport_size;
+            let canvas_width = viewport_size.0 - sidebar_w;
+            let center_x = canvas_width / 2.0;
+            let center_y = viewport_size.1 / 2.0;
+            let game_x = f32::from(event.position.x) - center_x;
+            let game_y = f32::from(event.position.y) - center_y;
+
+            if let Some(element) = this.game_state.placement_mode.take() {
+                this.game_state.try_place_tower(element, game_x, game_y);
+            } else {
+                this.game_state.try_select_at(game_x, game_y);
+            }
+        });
+        let right_click = cx.listener(|this, _, _window, _cx| {
+            this.game_state.placement_mode = None;
+            this.game_state.selected_tower = None;
+        });
+        let mouse_move = cx.listener(|this, event: &MouseMoveEvent, _window, _cx| {
+            this.cursor_pos = Some(event.position);
+        });
+        let key_down = cx.listener(|this, event: &KeyDownEvent, _window, _cx| {
+            if event.keystroke.key.as_str() == "escape" {
+                this.game_state.placement_mode = None;
+                this.game_state.selected_tower = None;
+            }
+        });
+
+        let sidebar = hud::render_sidebar(&self.game_state, cx);
 
         div()
             .size_full()
-            .relative()
-            .child(game_canvas)
-            .child(hud_overlay)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, event: &MouseDownEvent, _window, _cx| {
-                    let viewport_size = this.game_state.viewport_size;
-                    let center_x = viewport_size.0 / 2.0;
-                    let center_y = viewport_size.1 / 2.0;
-                    let game_x = f32::from(event.position.x) - center_x;
-                    let game_y = f32::from(event.position.y) - center_y;
-
-                    if let Some(element) = this.game_state.placement_mode.take() {
-                        this.game_state.try_place_tower(element, game_x, game_y);
-                    } else {
-                        this.game_state.try_select_at(game_x, game_y);
-                    }
-                }),
+            .flex()
+            .flex_row()
+            .child(
+                div()
+                    .flex_1()
+                    .h_full()
+                    .relative()
+                    .child(
+                        div()
+                            .size_full()
+                            .child(game_canvas)
+                            .on_mouse_down(MouseButton::Left, left_click)
+                            .on_mouse_down(MouseButton::Right, right_click)
+                            .on_mouse_move(mouse_move),
+                    )
+                    .when_some(tower_popover, |this, popover| this.child(popover)),
             )
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(|this, _, _window, _cx| {
-                    this.game_state.placement_mode = None;
-                    this.game_state.selected_tower = None;
-                }),
-            )
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, _cx| {
-                this.cursor_pos = Some(event.position);
-            }))
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, _cx| {
-                if event.keystroke.key.as_str() == "escape" {
-                    this.game_state.placement_mode = None;
-                    this.game_state.selected_tower = None;
-                }
-            }))
+            .child(sidebar)
+            .on_key_down(key_down)
     }
 }

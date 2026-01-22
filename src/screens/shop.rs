@@ -6,13 +6,13 @@ use crate::app::{Screen, SentinelsApp};
 use crate::data::{SHOP_UPGRADES, SaveData};
 
 pub fn render(save_data: &mut SaveData, cx: &mut Context<SentinelsApp>) -> impl IntoElement {
-    let total_gold = save_data.total_gold;
+    let pepites = save_data.pepites;
 
     let upgrades: Vec<_> = SHOP_UPGRADES
         .iter()
         .map(|def| {
             let current_level = save_data.get_upgrade_level(def.id);
-            let can_buy = current_level < def.max_level && total_gold >= def.cost(current_level);
+            let can_buy = current_level < def.max_level && pepites >= def.cost(current_level);
             (def, current_level, can_buy)
         })
         .collect();
@@ -37,8 +37,8 @@ pub fn render(save_data: &mut SaveData, cx: &mut Context<SentinelsApp>) -> impl 
                 )))
                 .child(
                     div()
-                        .text_color(rgb(0xffd700))
-                        .child(format!("Or: {}", total_gold)),
+                        .text_color(rgb(0xcc66ff))
+                        .child(format!("Pepites: {}", pepites)),
                 ),
         )
         .child(
@@ -84,7 +84,7 @@ pub fn render(save_data: &mut SaveData, cx: &mut Context<SentinelsApp>) -> impl 
                         } else {
                             let id_owned = id.to_string();
                             Button::new(SharedString::from(format!("buy_{}", id)))
-                                .label(format!("{} or", cost))
+                                .label(format!("{} pepites", cost))
                                 .disabled(!can_buy)
                                 .on_click(cx.listener(move |app, _, _window, cx| {
                                     app.save_data.purchase_upgrade(&id_owned, cost);

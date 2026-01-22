@@ -3,9 +3,21 @@ pub mod shapes;
 use gpui::*;
 
 use crate::game::GameState;
+use crate::game::Point2D;
+use crate::game::elemental::TowerElement;
 use shapes::*;
 
-pub fn render_game(game: &GameState, viewport_size: Size<Pixels>) -> impl IntoElement {
+pub struct PlacementPreview {
+    pub element: TowerElement,
+    pub game_pos: Point2D,
+    pub range: f32,
+}
+
+pub fn render_game(
+    game: &GameState,
+    _viewport_size: Size<Pixels>,
+    placement_preview: Option<PlacementPreview>,
+) -> impl IntoElement {
     let player = game.player.clone();
     let towers = game.towers.clone();
     let enemies = game.enemies.clone();
@@ -68,6 +80,44 @@ pub fn render_game(game: &GameState, viewport_size: Size<Pixels>) -> impl IntoEl
 
             // Draw player
             draw_player(window, center, &player);
+
+            // Draw placement preview (ghost tower + dashed range circle)
+            if let Some(ref preview) = placement_preview {
+                let color = preview.element.color();
+                let ghost_color = Hsla {
+                    h: color.h,
+                    s: color.s,
+                    l: color.l,
+                    a: 0.4,
+                };
+                let screen_pos = point(
+                    center.x + px(preview.game_pos.x),
+                    center.y + px(preview.game_pos.y),
+                );
+                // Ghost tower diamond
+                draw_polygon(
+                    window,
+                    screen_pos,
+                    15.0,
+                    4,
+                    ghost_color,
+                    std::f32::consts::PI / 4.0,
+                );
+                // Dashed range circle
+                draw_dashed_circle_outline(
+                    window,
+                    center,
+                    &preview.game_pos,
+                    preview.range,
+                    Hsla {
+                        h: color.h,
+                        s: color.s,
+                        l: color.l,
+                        a: 0.5,
+                    },
+                    16,
+                );
+            }
         },
     )
     .size_full()

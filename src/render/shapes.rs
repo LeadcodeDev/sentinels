@@ -94,6 +94,60 @@ pub fn draw_circle_outline(
     }
 }
 
+pub fn draw_dashed_circle_outline(
+    window: &mut Window,
+    center: Point<Pixels>,
+    game_pos: &Point2D,
+    radius: f32,
+    color: Hsla,
+    dash_count: u32,
+) {
+    let screen_pos = to_screen(center, game_pos);
+    let segments = dash_count * 2; // alternating dash/gap
+
+    for i in 0..segments {
+        if i % 2 != 0 {
+            continue; // skip gap segments
+        }
+
+        let angle1 = (2.0 * std::f32::consts::PI * i as f32) / segments as f32;
+        let angle2 = (2.0 * std::f32::consts::PI * (i + 1) as f32) / segments as f32;
+
+        let p1 = point(
+            screen_pos.x + px(radius * angle1.cos()),
+            screen_pos.y + px(radius * angle1.sin()),
+        );
+        let p2 = point(
+            screen_pos.x + px(radius * angle2.cos()),
+            screen_pos.y + px(radius * angle2.sin()),
+        );
+
+        let dx = f32::from(p2.x) - f32::from(p1.x);
+        let dy = f32::from(p2.y) - f32::from(p1.y);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 0.1 {
+            continue;
+        }
+        let nx = -dy / len;
+        let ny = dx / len;
+        let half_width = 1.0;
+
+        let points = vec![
+            point(p1.x + px(nx * half_width), p1.y + px(ny * half_width)),
+            point(p2.x + px(nx * half_width), p2.y + px(ny * half_width)),
+            point(p2.x - px(nx * half_width), p2.y - px(ny * half_width)),
+            point(p1.x - px(nx * half_width), p1.y - px(ny * half_width)),
+        ];
+
+        let mut path = Path::new(points[0]);
+        for p in &points[1..] {
+            path.line_to(*p);
+        }
+        path.line_to(points[0]);
+        window.paint_path(path, color);
+    }
+}
+
 pub fn draw_player(window: &mut Window, center: Point<Pixels>, player: &Player) {
     let color = player.element.color();
 
