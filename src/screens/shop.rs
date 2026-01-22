@@ -1,6 +1,6 @@
 use gpui::*;
-use gpui_component::Disableable;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::{Disableable, h_flex, v_flex};
 
 use crate::app::{Screen, SentinelsApp};
 use crate::data::{SHOP_UPGRADES, SaveData};
@@ -17,24 +17,24 @@ pub fn render(save_data: &mut SaveData, cx: &mut Context<SentinelsApp>) -> impl 
         })
         .collect();
 
-    div()
+    v_flex()
         .size_full()
-        .flex()
-        .flex_col()
         .items_center()
         .gap_4()
         .p_6()
         .child(
-            div()
+            h_flex()
                 .w_full()
-                .flex()
                 .items_center()
                 .justify_between()
-                .child(Button::new("back").label("Retour").on_click(cx.listener(
-                    |app, _, _window, cx| {
-                        app.navigate_to(Screen::Lobby, cx);
-                    },
-                )))
+                .child(
+                    Button::new("back")
+                        .ghost()
+                        .label("Retour")
+                        .on_click(cx.listener(|app, _, _window, cx| {
+                            app.navigate_to(Screen::Lobby, cx);
+                        })),
+                )
                 .child(
                     div()
                         .text_color(rgb(0xcc66ff))
@@ -48,9 +48,7 @@ pub fn render(save_data: &mut SaveData, cx: &mut Context<SentinelsApp>) -> impl 
                 .child("Boutique - Ameliorations permanentes"),
         )
         .child(
-            div()
-                .flex()
-                .flex_col()
+            v_flex()
                 .gap_2()
                 .w_full()
                 .max_w(px(500.))
@@ -58,17 +56,14 @@ pub fn render(save_data: &mut SaveData, cx: &mut Context<SentinelsApp>) -> impl 
                     let id = def.id;
                     let cost = def.cost(level);
 
-                    div()
-                        .flex()
+                    h_flex()
                         .items_center()
                         .justify_between()
                         .p_3()
                         .rounded_md()
                         .bg(rgb(0x2a2a4a))
                         .child(
-                            div()
-                                .flex()
-                                .flex_col()
+                            v_flex()
                                 .gap_1()
                                 .child(div().text_color(rgb(0xffffff)).text_sm().child(def.name))
                                 .child(div().text_color(rgb(0x888888)).text_xs().child(format!(
@@ -84,6 +79,7 @@ pub fn render(save_data: &mut SaveData, cx: &mut Context<SentinelsApp>) -> impl 
                         } else {
                             let id_owned = id.to_string();
                             Button::new(SharedString::from(format!("buy_{}", id)))
+                                .primary()
                                 .label(format!("{} pepites", cost))
                                 .disabled(!can_buy)
                                 .on_click(cx.listener(move |app, _, _window, cx| {

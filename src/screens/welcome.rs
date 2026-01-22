@@ -1,4 +1,5 @@
 use gpui::*;
+use gpui_component::v_flex;
 use std::time::Duration;
 
 use crate::app::{Screen, SentinelsApp};
@@ -13,10 +14,8 @@ pub fn render(cx: &mut Context<SentinelsApp>) -> impl IntoElement {
     })
     .detach();
 
-    div()
+    v_flex()
         .size_full()
-        .flex()
-        .flex_col()
         .items_center()
         .justify_center()
         .gap_4()

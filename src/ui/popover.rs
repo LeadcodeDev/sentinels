@@ -1,7 +1,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::*;
-use gpui_component::Disableable;
-use gpui_component::button::Button;
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::divider::Divider;
+use gpui_component::{Disableable, Sizable, Size, h_flex, v_flex};
 
 use crate::game::GameState;
 use crate::screens::play::PlayScreen;
@@ -55,42 +56,27 @@ pub fn render_tower_popover(
     let popover_y = screen_y - 80.0;
 
     let sell_btn = Button::new("sell_tower")
-        .label(format!("Vendre ({})", sell_value))
+        .danger()
+        .label(format!("Vendre ({}g)", sell_value))
+        .compact()
+        .with_size(Size::Small)
         .on_click(cx.listener(move |screen, _, _window, _cx| {
             if let Some(idx) = screen.game_state.selected_tower {
                 screen.game_state.sell_tower(idx);
             }
         }));
 
-    let upgrade_buttons: Vec<_> = upgrades
-        .iter()
-        .map(
-            |&(upgrade_type, level, max_level, cost, bonus, can_afford)| {
-                let label = if level >= max_level {
-                    format!("{} MAX", upgrade_type.name())
-                } else {
-                    format!("{} +{:.0} ({}g)", upgrade_type.name(), bonus, cost)
-                };
-                let id = SharedString::from(format!("upgrade_{:?}", upgrade_type));
-                let is_maxed = level >= max_level;
-
-                (
-                    id,
-                    label,
-                    upgrade_type,
-                    can_afford,
-                    is_maxed,
-                    level,
-                    max_level,
-                )
-            },
-        )
-        .collect();
-
     let mut upgrade_elements: Vec<AnyElement> = Vec::new();
-    for (id, label, upgrade_type, can_afford, is_maxed, level, max_level) in upgrade_buttons {
-        let btn = div()
-            .flex()
+    for &(upgrade_type, level, max_level, cost, bonus, can_afford) in &upgrades {
+        let label = if level >= max_level {
+            format!("{} MAX", upgrade_type.name())
+        } else {
+            format!("{} +{:.0} ({}g)", upgrade_type.name(), bonus, cost)
+        };
+        let id = SharedString::from(format!("upgrade_{:?}", upgrade_type));
+        let is_maxed = level >= max_level;
+
+        let btn = h_flex()
             .items_center()
             .justify_between()
             .gap_2()
@@ -103,6 +89,8 @@ pub fn render_tower_popover(
             .child(
                 Button::new(id)
                     .label(label)
+                    .compact()
+                    .with_size(Size::Small)
                     .disabled(is_maxed || !can_afford)
                     .on_click(cx.listener(move |screen, _, _window, _cx| {
                         if let Some(idx) = screen.game_state.selected_tower {
@@ -113,15 +101,13 @@ pub fn render_tower_popover(
         upgrade_elements.push(btn.into_any_element());
     }
 
-    let popover = div()
+    let popover = v_flex()
         .id("tower_popover")
         .absolute()
         .left(px(popover_x))
         .top(px(popover_y))
         .w(px(200.0))
-        .on_mouse_down(MouseButton::Left, |_, _, _| {
-            // Consume the event to prevent it from reaching the canvas
-        })
+        .on_mouse_down(MouseButton::Left, |_, _, _| {})
         .on_mouse_down(MouseButton::Right, |_, _, _| {})
         .p_3()
         .rounded_md()
@@ -138,23 +124,17 @@ pub fn render_tower_popover(
             l: color.l,
             a: 0.6,
         })
-        .flex()
-        .flex_col()
         .gap_2()
         // Header
         .child(
-            div().flex().items_center().justify_between().child(
-                div()
-                    .text_sm()
-                    .text_color(color)
-                    .child(format!("{} Nv.{}", element_name, level)),
-            ),
+            div()
+                .text_sm()
+                .text_color(color)
+                .child(format!("{} Nv.{}", element_name, level)),
         )
         // Stats
         .child(
-            div()
-                .flex()
-                .flex_col()
+            v_flex()
                 .gap_1()
                 .text_xs()
                 .text_color(rgb(0xcccccc))
@@ -166,7 +146,7 @@ pub fn render_tower_popover(
                 }),
         )
         // Separator
-        .child(div().w_full().h(px(1.0)).bg(Hsla {
+        .child(Divider::horizontal().color(Hsla {
             h: 0.0,
             s: 0.0,
             l: 0.3,
@@ -182,7 +162,7 @@ pub fn render_tower_popover(
         // Upgrade buttons
         .children(upgrade_elements)
         // Separator
-        .child(div().w_full().h(px(1.0)).bg(Hsla {
+        .child(Divider::horizontal().color(Hsla {
             h: 0.0,
             s: 0.0,
             l: 0.3,

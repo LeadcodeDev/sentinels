@@ -1,5 +1,6 @@
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::v_flex;
 
 use crate::app::{Screen, SentinelsApp};
 use crate::data::SaveData;
@@ -8,10 +9,8 @@ pub fn render(save_data: &SaveData, cx: &mut Context<SentinelsApp>) -> impl Into
     let best_score = save_data.best_score;
     let max_wave = save_data.max_wave;
 
-    div()
+    v_flex()
         .size_full()
-        .flex()
-        .flex_col()
         .items_center()
         .justify_center()
         .gap_6()
@@ -21,9 +20,7 @@ pub fn render(save_data: &SaveData, cx: &mut Context<SentinelsApp>) -> impl Into
             best_score, max_wave
         )))
         .child(
-            div()
-                .flex()
-                .flex_col()
+            v_flex()
                 .gap_3()
                 .items_center()
                 .child(
@@ -34,13 +31,17 @@ pub fn render(save_data: &SaveData, cx: &mut Context<SentinelsApp>) -> impl Into
                             app.navigate_to(Screen::Play, cx);
                         })),
                 )
-                .child(Button::new("shop").label("Boutique").on_click(cx.listener(
-                    |app, _, _window, cx| {
-                        app.navigate_to(Screen::Shop, cx);
-                    },
-                )))
+                .child(
+                    Button::new("shop")
+                        .ghost()
+                        .label("Boutique")
+                        .on_click(cx.listener(|app, _, _window, cx| {
+                            app.navigate_to(Screen::Shop, cx);
+                        })),
+                )
                 .child(
                     Button::new("quit")
+                        .danger()
                         .label("Quitter")
                         .on_click(|_, _window, cx| {
                             cx.quit();
