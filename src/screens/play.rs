@@ -7,7 +7,7 @@ use crate::data::tower_presets::get_preset;
 use crate::game::GameState;
 use crate::game::Point2D;
 use crate::render::{self, PlacementPreview};
-use crate::ui::{hud, popover};
+use crate::ui::hud;
 
 pub enum PlayScreenEvent {
     ReturnToLobby,
@@ -96,7 +96,6 @@ impl Render for PlayScreen {
 
         let placement_preview = self.get_placement_preview();
         let game_canvas = render::render_game(&self.game_state, viewport_size, placement_preview);
-        let tower_popover = popover::render_tower_popover(&self.game_state, cx);
 
         let left_click = cx.listener(|this, event: &MouseDownEvent, _window, _cx| {
             let sidebar_w = hud::sidebar_width();
@@ -134,19 +133,14 @@ impl Render for PlayScreen {
             .flex()
             .flex_row()
             .child(
-                div()
-                    .flex_1()
-                    .h_full()
-                    .relative()
-                    .child(
-                        div()
-                            .size_full()
-                            .child(game_canvas)
-                            .on_mouse_down(MouseButton::Left, left_click)
-                            .on_mouse_down(MouseButton::Right, right_click)
-                            .on_mouse_move(mouse_move),
-                    )
-                    .when_some(tower_popover, |this, popover| this.child(popover)),
+                div().flex_1().h_full().relative().child(
+                    div()
+                        .size_full()
+                        .child(game_canvas)
+                        .on_mouse_down(MouseButton::Left, left_click)
+                        .on_mouse_down(MouseButton::Right, right_click)
+                        .on_mouse_move(mouse_move),
+                ),
             )
             .child(sidebar)
             .on_key_down(key_down)
