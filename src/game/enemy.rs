@@ -75,10 +75,15 @@ impl Enemy {
         }
     }
 
-    pub fn tick(&mut self, dt: f32, center: &Point2D) {
-        // Only move if not in attack range of player
+    pub fn tick(&mut self, dt: f32, center: &Point2D, shield_radius: Option<f32>) {
+        // Stop distance: shield border if active, otherwise attack range from center
+        let stop_distance = match shield_radius {
+            Some(r) => r,
+            None => self.attack_range,
+        };
+
         let dist_to_center = self.position.distance_to(center);
-        if dist_to_center > self.attack_range {
+        if dist_to_center > stop_distance {
             let dx = center.x - self.position.x;
             let dy = center.y - self.position.y;
             let dist = (dx * dx + dy * dy).sqrt();
@@ -105,9 +110,14 @@ impl Enemy {
         });
     }
 
-    pub fn try_attack(&mut self, player_pos: &Point2D, dt: f32) -> Option<Projectile> {
-        let dist = self.position.distance_to(player_pos);
-        if dist > self.attack_range {
+    pub fn try_attack(
+        &mut self,
+        target_pos: &Point2D,
+        target_radius: f32,
+        dt: f32,
+    ) -> Option<Projectile> {
+        let dist = self.position.distance_to(target_pos);
+        if dist > target_radius + self.attack_range {
             return None;
         }
 
@@ -116,7 +126,7 @@ impl Enemy {
             self.attack_cooldown = 1.0 / self.attack_speed;
             Some(Projectile {
                 origin: self.position.clone(),
-                target_pos: player_pos.clone(),
+                target_pos: target_pos.clone(),
                 current_pos: self.position.clone(),
                 speed: 200.0,
                 damage: self.damage,

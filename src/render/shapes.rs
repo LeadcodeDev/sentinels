@@ -1,5 +1,6 @@
 use gpui::*;
 
+use crate::game::Shield;
 use crate::game::enemy::Enemy;
 use crate::game::player::Player;
 use crate::game::tower::Tower;
@@ -300,6 +301,57 @@ fn draw_line(window: &mut Window, from: Point<Pixels>, to: Point<Pixels>, color:
     }
     path.line_to(points[0]);
     window.paint_path(path, color);
+}
+
+pub fn draw_shield(window: &mut Window, center: Point<Pixels>, shield: &Shield) {
+    let ratio = shield.hp / shield.max_hp;
+
+    if shield.active {
+        // Active shield: cyan circle with alpha based on HP
+        let alpha = 0.15 + 0.25 * ratio;
+        draw_circle(
+            window,
+            center,
+            shield.radius,
+            Hsla {
+                h: 0.55,
+                s: 0.8,
+                l: 0.6,
+                a: alpha,
+            },
+        );
+
+        // Outline
+        draw_circle_outline(
+            window,
+            center,
+            &Point2D::zero(),
+            shield.radius,
+            Hsla {
+                h: 0.55,
+                s: 0.9,
+                l: 0.7,
+                a: 0.5 + 0.4 * ratio,
+            },
+        );
+    } else {
+        // Regenerating: dashed outline with low alpha, pulsing
+        let regen_progress = 1.0 - (shield.regen_timer / shield.regen_delay);
+        let alpha = 0.15 + 0.2 * regen_progress;
+        draw_dashed_circle_outline(
+            window,
+            center,
+            &Point2D::zero(),
+            shield.radius,
+            Hsla {
+                h: 0.55,
+                s: 0.6,
+                l: 0.5,
+                a: alpha,
+            },
+            16,
+        );
+    }
 }
 
 fn draw_hp_bar(window: &mut Window, pos: Point<Pixels>, hp: f32, max_hp: f32, radius: f32) {

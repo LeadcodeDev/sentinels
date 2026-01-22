@@ -26,6 +26,7 @@ pub fn render_sidebar(game: &GameState, cx: &mut Context<PlayScreen>) -> impl In
     let phase = game.phase;
     let tower_count = game.towers.len();
     let player_gold = game.economy.gold;
+    let shield = game.shield.clone();
 
     let selected_section = selected_tower_section(game, cx);
 
@@ -57,6 +58,7 @@ pub fn render_sidebar(game: &GameState, cx: &mut Context<PlayScreen>) -> impl In
             wave,
             score,
             tower_count,
+            &shield,
         ))
         // Tower grid section
         .child(tower_grid_section(player_gold, cx))
@@ -95,7 +97,14 @@ fn stats_section(
     wave: u32,
     score: u32,
     tower_count: usize,
+    shield: &crate::game::Shield,
 ) -> impl IntoElement {
+    let shield_unlocked = shield.is_unlocked();
+    let shield_active = shield.active;
+    let shield_hp = shield.hp;
+    let shield_max_hp = shield.max_hp;
+    let shield_regen_timer = shield.regen_timer;
+
     v_flex()
         .gap_2()
         // HP bar using Progress component
@@ -115,6 +124,33 @@ fn stats_section(
                         .child(format!("{:.0}/{:.0}", hp, max_hp)),
                 ),
         )
+        // Shield bar (only if unlocked)
+        .when(shield_unlocked, |this| {
+            this.child(
+                v_flex()
+                    .gap_1()
+                    .child(div().text_xs().text_color(rgb(0xaaaaaa)).child("Bouclier"))
+                    .child(
+                        Progress::new()
+                            .value(if shield_active {
+                                (shield_hp / shield_max_hp) * 100.0
+                            } else {
+                                0.0
+                            })
+                            .bg(rgb(0x44ccdd)),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x44ccdd))
+                            .child(if shield_active {
+                                format!("{:.0}/{:.0}", shield_hp, shield_max_hp)
+                            } else {
+                                format!("Regen {:.0}s", shield_regen_timer)
+                            }),
+                    ),
+            )
+        })
         // Stats using consistent stat_row helper
         .child(stat_row("Or", format!("{}", gold), rgb(0xffd700)))
         .child(stat_row("Pepites", format!("{}", pepites), rgb(0xcc66ff)))

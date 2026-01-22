@@ -19,6 +19,7 @@ pub fn render_game(
     placement_preview: Option<PlacementPreview>,
 ) -> impl IntoElement {
     let player = game.player.clone();
+    let shield = game.shield.clone();
     let towers = game.towers.clone();
     let enemies = game.enemies.clone();
     let projectiles = game.projectiles.clone();
@@ -80,6 +81,11 @@ pub fn render_game(
 
             // Draw player
             draw_player(window, center, &player);
+
+            // Draw shield
+            if shield.is_unlocked() {
+                draw_shield(window, center, &shield);
+            }
 
             // Draw placement preview (ghost tower + dashed range circle)
             if let Some(ref preview) = placement_preview {

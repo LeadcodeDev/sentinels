@@ -74,6 +74,14 @@ pub const SHOP_UPGRADES: &[ShopUpgradeDef] = &[
         base_cost: 250,
         cost_per_level: 125,
     },
+    ShopUpgradeDef {
+        id: "shield",
+        name: "Bouclier d'energie",
+        description: "Bloque les ennemis a distance, +50 PV par niveau",
+        max_level: 5,
+        base_cost: 100,
+        cost_per_level: 200,
+    },
 ];
 
 impl SaveData {

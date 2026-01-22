@@ -64,6 +64,44 @@ pub struct Projectile {
 }
 
 #[derive(Clone)]
+pub struct Shield {
+    pub active: bool,
+    pub hp: f32,
+    pub max_hp: f32,
+    pub radius: f32,
+    pub regen_timer: f32,
+    pub regen_delay: f32,
+}
+
+impl Shield {
+    pub fn new(level: u32) -> Self {
+        if level == 0 {
+            return Self {
+                active: false,
+                hp: 0.0,
+                max_hp: 0.0,
+                radius: 0.0,
+                regen_timer: 0.0,
+                regen_delay: 15.0,
+            };
+        }
+        let max_hp = 50.0 * level as f32;
+        Self {
+            active: true,
+            hp: max_hp,
+            max_hp,
+            radius: 80.0,
+            regen_timer: 0.0,
+            regen_delay: 15.0,
+        }
+    }
+
+    pub fn is_unlocked(&self) -> bool {
+        self.max_hp > 0.0
+    }
+}
+
+#[derive(Clone)]
 pub struct Economy {
     pub gold: u32,
     pub score: u32,
@@ -73,6 +111,7 @@ pub struct Economy {
 
 pub struct GameState {
     pub player: Player,
+    pub shield: Shield,
     pub towers: Vec<Tower>,
     pub enemies: Vec<Enemy>,
     pub projectiles: Vec<Projectile>,
@@ -89,9 +128,11 @@ pub struct GameState {
 impl GameState {
     pub fn new(save_data: &SaveData) -> Self {
         let bonus_gold = save_data.get_upgrade_level("bonus_gold") as u32 * 50;
+        let shield_level = save_data.get_upgrade_level("shield");
 
         Self {
             player: Player::new(),
+            shield: Shield::new(shield_level),
             towers: Vec::new(),
             enemies: Vec::new(),
             projectiles: Vec::new(),
@@ -137,16 +178,35 @@ impl GameState {
             }
         }
 
-        // 2. Enemy movement
-        let center = Point2D::zero();
-        for enemy in &mut self.enemies {
-            enemy.tick(dt, &center);
+        // 2. Shield regen tick
+        if self.shield.is_unlocked() && !self.shield.active {
+            self.shield.regen_timer -= dt;
+            if self.shield.regen_timer <= 0.0 {
+                self.shield.active = true;
+                self.shield.hp = self.shield.max_hp;
+            }
         }
 
-        // 3. Enemy attacks - enemies in range fire projectiles at player
-        let player_pos = self.player.position.clone();
+        // 3. Enemy movement (blocked by shield)
+        let center = Point2D::zero();
+        let shield_stop = if self.shield.active {
+            Some(self.shield.radius)
+        } else {
+            None
+        };
         for enemy in &mut self.enemies {
-            if let Some(proj) = enemy.try_attack(&player_pos, dt) {
+            enemy.tick(dt, &center, shield_stop);
+        }
+
+        // 3. Enemy attacks - enemies target shield if active, otherwise player
+        let player_pos = self.player.position.clone();
+        let attack_target_radius = if self.shield.active {
+            self.shield.radius
+        } else {
+            0.0
+        };
+        for enemy in &mut self.enemies {
+            if let Some(proj) = enemy.try_attack(&player_pos, attack_target_radius, dt) {
                 self.projectiles.push(proj);
             }
         }
@@ -252,11 +312,25 @@ impl GameState {
                     }
                 }
                 ProjectileSource::Enemy(_) => {
-                    // Check collision with player
                     let player_pos = &self.player.position;
-                    if proj.current_pos.distance_to(player_pos) < self.player.radius + 5.0 {
-                        player_damage += proj.damage;
-                        hit = true;
+                    // Check collision with shield first
+                    if self.shield.active {
+                        let dist_to_center = proj.current_pos.distance_to(player_pos);
+                        if dist_to_center < self.shield.radius + 5.0 {
+                            self.shield.hp -= proj.damage;
+                            if self.shield.hp <= 0.0 {
+                                self.shield.hp = 0.0;
+                                self.shield.active = false;
+                                self.shield.regen_timer = self.shield.regen_delay;
+                            }
+                            hit = true;
+                        }
+                    } else {
+                        // No shield: check collision with player
+                        if proj.current_pos.distance_to(player_pos) < self.player.radius + 5.0 {
+                            player_damage += proj.damage;
+                            hit = true;
+                        }
                     }
                 }
             }
@@ -311,17 +385,19 @@ impl GameState {
         // 9. Remove expired projectiles
         self.projectiles.retain(|p| p.lifetime > 0.0);
 
-        // 10. Remove enemies that reached the player
+        // 10. Remove enemies that reached the player (no shield)
         let player_radius = self.player.radius;
-        self.enemies.retain(|e| {
-            let dist = e.position.distance_to(&center);
-            if dist < player_radius + e.radius {
-                self.player.hp -= e.damage;
-                false
-            } else {
-                true
-            }
-        });
+        if !self.shield.active {
+            self.enemies.retain(|e| {
+                let dist = e.position.distance_to(&center);
+                if dist < player_radius + e.radius {
+                    self.player.hp -= e.damage;
+                    false
+                } else {
+                    true
+                }
+            });
+        }
 
         // 11. Game over check
         if self.player.hp <= 0.0 {
