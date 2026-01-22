@@ -75,25 +75,6 @@ pub fn render_sidebar(game: &GameState, cx: &mut Context<PlayScreen>) -> impl In
                                 screen.game_state.start_wave();
                             })),
                     )
-                })
-                .when(phase == GamePhase::GameOver, |this| {
-                    this.child(
-                        v_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(div().text_sm().text_color(rgb(0xff4444)).child("GAME OVER"))
-                            .child(
-                                Button::new("back_lobby")
-                                    .danger()
-                                    .label("Retour au lobby")
-                                    .on_click(cx.listener(|screen, _, _window, cx| {
-                                        screen.game_running = false;
-                                        cx.emit(
-                                            crate::screens::play::PlayScreenEvent::ReturnToLobby,
-                                        );
-                                    })),
-                            ),
-                    )
                 }),
         )
 }
@@ -180,7 +161,6 @@ fn selected_tower_section(
 
     let color = tower.element.color();
     let element_name = tower.element.name();
-    let level = tower.level;
     let damage = tower.attack_damage;
     let range = tower.attack_range;
     let speed = tower.attack_speed;
@@ -207,11 +187,19 @@ fn selected_tower_section(
 
     let mut upgrade_elements: Vec<AnyElement> = Vec::new();
     for &(upgrade_type, ulevel, max_level, cost, bonus, can_afford) in &upgrades {
+        if bonus == 0.0 {
+            continue;
+        }
         let is_maxed = ulevel >= max_level;
+        let bonus_str = if bonus.fract() == 0.0 {
+            format!("{:.0}", bonus)
+        } else {
+            format!("{:.1}", bonus)
+        };
         let label = if is_maxed {
             format!("{} MAX", upgrade_type.name())
         } else {
-            format!("{} +{:.0} ({}g)", upgrade_type.name(), bonus, cost)
+            format!("{} +{} ({}g)", upgrade_type.name(), bonus_str, cost)
         };
         let id = SharedString::from(format!("sidebar_upgrade_{:?}", upgrade_type));
 
@@ -266,12 +254,7 @@ fn selected_tower_section(
                 a: 1.0,
             }))
             // Header
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(color)
-                    .child(format!("{} Nv.{}", element_name, level)),
-            )
+            .child(div().text_sm().text_color(color).child(element_name))
             // Stats
             .child(
                 v_flex()

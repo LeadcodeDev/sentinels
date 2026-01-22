@@ -23,7 +23,7 @@ impl WaveManager {
             current_wave: 0,
             enemies_to_spawn: Vec::new(),
             spawn_timer: 0.0,
-            spawn_interval: 0.8,
+            spawn_interval: 0.5,
             wave_active: false,
             between_waves_timer: 5.0,
             between_waves_duration: 5.0,
@@ -74,35 +74,67 @@ impl WaveManager {
 
     fn generate_wave(&self, wave_num: u32) -> Vec<EnemySpawnInfo> {
         let mut enemies = Vec::new();
-        let count = 5 + wave_num * 2;
+        // More enemies: starts at 8, grows by 3 per wave
+        let count = 8 + wave_num * 3;
 
         for _ in 0..count {
             let shape = if wave_num <= 2 {
-                EnemyShape::Triangle
-            } else if wave_num <= 5 {
-                if rand::thread_rng().r#gen::<f32>() < 0.6 {
+                // Waves 1-2: mostly scouts
+                if rand::thread_rng().r#gen::<f32>() < 0.85 {
                     EnemyShape::Triangle
                 } else {
                     EnemyShape::Square
                 }
-            } else if wave_num <= 10 {
+            } else if wave_num <= 4 {
+                // Waves 3-4: introduce soldiers
                 let r: f32 = rand::thread_rng().r#gen();
-                if r < 0.3 {
+                if r < 0.5 {
                     EnemyShape::Triangle
-                } else if r < 0.6 {
+                } else {
                     EnemyShape::Square
-                } else if r < 0.85 {
+                }
+            } else if wave_num <= 7 {
+                // Waves 5-7: introduce tanks
+                let r: f32 = rand::thread_rng().r#gen();
+                if r < 0.35 {
+                    EnemyShape::Triangle
+                } else if r < 0.65 {
+                    EnemyShape::Square
+                } else {
+                    EnemyShape::Pentagon
+                }
+            } else if wave_num <= 10 {
+                // Waves 8-10: introduce destructors
+                let r: f32 = rand::thread_rng().r#gen();
+                if r < 0.25 {
+                    EnemyShape::Triangle
+                } else if r < 0.50 {
+                    EnemyShape::Square
+                } else if r < 0.75 {
+                    EnemyShape::Pentagon
+                } else {
+                    EnemyShape::Hexagon
+                }
+            } else if wave_num <= 15 {
+                // Waves 11-15: balanced mix
+                let r: f32 = rand::thread_rng().r#gen();
+                if r < 0.20 {
+                    EnemyShape::Triangle
+                } else if r < 0.40 {
+                    EnemyShape::Square
+                } else if r < 0.65 {
                     EnemyShape::Pentagon
                 } else {
                     EnemyShape::Hexagon
                 }
             } else {
+                // Waves 16+: heavy mix, fewer scouts
                 let r: f32 = rand::thread_rng().r#gen();
-                if r < 0.2 {
+                if r < 0.10 {
                     EnemyShape::Triangle
-                } else if r < 0.4 {
+                } else if r < 0.30 {
                     EnemyShape::Square
-                } else if r < 0.6 {
+                } else if r < 0.60 {
                     EnemyShape::Pentagon
                 } else {
                     EnemyShape::Hexagon
@@ -112,11 +144,14 @@ impl WaveManager {
             enemies.push(EnemySpawnInfo { shape });
         }
 
-        // Boss every 10 waves
-        if wave_num % 10 == 0 {
-            enemies.push(EnemySpawnInfo {
-                shape: EnemyShape::Octagon,
-            });
+        // Boss every 5 waves (starting wave 5)
+        if wave_num >= 5 && wave_num % 5 == 0 {
+            let boss_count = wave_num / 10 + 1;
+            for _ in 0..boss_count {
+                enemies.push(EnemySpawnInfo {
+                    shape: EnemyShape::Octagon,
+                });
+            }
         }
 
         enemies

@@ -1,11 +1,13 @@
 use gpui::prelude::FluentBuilder;
 use gpui::*;
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::v_flex;
 use std::time::{Duration, Instant};
 
 use crate::data::SaveData;
 use crate::data::tower_presets::get_preset;
-use crate::game::GameState;
 use crate::game::Point2D;
+use crate::game::{GamePhase, GameState};
 use crate::render::{self, PlacementPreview};
 use crate::ui::hud;
 
@@ -127,22 +129,71 @@ impl Render for PlayScreen {
         });
 
         let sidebar = hud::render_sidebar(&self.game_state, cx);
+        let is_game_over = self.game_state.phase == GamePhase::GameOver;
+        let score = self.game_state.economy.score;
+        let wave = self.game_state.economy.wave_number;
 
         div()
             .size_full()
-            .flex()
-            .flex_row()
+            .relative()
             .child(
-                div().flex_1().h_full().relative().child(
-                    div()
-                        .size_full()
-                        .child(game_canvas)
-                        .on_mouse_down(MouseButton::Left, left_click)
-                        .on_mouse_down(MouseButton::Right, right_click)
-                        .on_mouse_move(mouse_move),
-                ),
+                div()
+                    .size_full()
+                    .flex()
+                    .flex_row()
+                    .child(
+                        div().flex_1().h_full().relative().child(
+                            div()
+                                .size_full()
+                                .child(game_canvas)
+                                .on_mouse_down(MouseButton::Left, left_click)
+                                .on_mouse_down(MouseButton::Right, right_click)
+                                .on_mouse_move(mouse_move),
+                        ),
+                    )
+                    .child(sidebar)
+                    .on_key_down(key_down),
             )
-            .child(sidebar)
-            .on_key_down(key_down)
+            .when(is_game_over, |this| {
+                this.child(
+                    div()
+                        .id("game_over_overlay")
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .bg(Hsla {
+                            h: 0.0,
+                            s: 0.0,
+                            l: 0.0,
+                            a: 0.75,
+                        })
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                        .child(
+                            v_flex()
+                                .items_center()
+                                .gap_4()
+                                .child(div().text_xl().text_color(rgb(0xff4444)).child("GAME OVER"))
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(0xcccccc))
+                                        .child(format!("Score: {} | Vague: {}", score, wave)),
+                                )
+                                .child(
+                                    Button::new("back_lobby")
+                                        .danger()
+                                        .label("Retour au lobby")
+                                        .on_click(cx.listener(|screen, _, _window, cx| {
+                                            screen.game_running = false;
+                                            cx.emit(PlayScreenEvent::ReturnToLobby);
+                                        })),
+                                ),
+                        ),
+                )
+            })
     }
 }

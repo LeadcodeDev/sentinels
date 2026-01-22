@@ -30,15 +30,15 @@ pub struct TowerUpgrade {
 
 impl TowerUpgrade {
     pub fn cost(&self) -> u32 {
-        50 + self.level * 40
+        30 + self.level * 25
     }
 
     pub fn bonus_per_level(&self) -> f32 {
         match self.upgrade_type {
-            TowerUpgradeType::Damage => 5.0,
-            TowerUpgradeType::Range => 20.0,
-            TowerUpgradeType::AttackSpeed => 0.2,
-            TowerUpgradeType::AoeRadius => 15.0,
+            TowerUpgradeType::Damage => 3.0,
+            TowerUpgradeType::Range => 15.0,
+            TowerUpgradeType::AttackSpeed => 0.15,
+            TowerUpgradeType::AoeRadius => 10.0,
         }
     }
 }

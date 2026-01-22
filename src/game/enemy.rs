@@ -53,7 +53,7 @@ impl Enemy {
         use crate::data::enemy_types::get_preset;
 
         let preset = get_preset(shape);
-        let hp_scale = 1.0 + 0.15 * wave_number as f32;
+        let hp_scale = 1.0 + 0.08 * wave_number as f32;
 
         Self {
             id,
