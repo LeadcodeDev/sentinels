@@ -106,5 +106,11 @@ impl Render for PlayScreen {
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, _cx| {
                 this.cursor_pos = Some(event.position);
             }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, _cx| {
+                if event.keystroke.key.as_str() == "escape" {
+                    this.game_state.placement_mode = None;
+                    this.game_state.selected_tower = None;
+                }
+            }))
     }
 }

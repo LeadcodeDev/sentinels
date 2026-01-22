@@ -76,15 +76,18 @@ impl Enemy {
     }
 
     pub fn tick(&mut self, dt: f32, center: &Point2D) {
-        // Move toward center
-        let dx = center.x - self.position.x;
-        let dy = center.y - self.position.y;
-        let dist = (dx * dx + dy * dy).sqrt();
+        // Only move if not in attack range of player
+        let dist_to_center = self.position.distance_to(center);
+        if dist_to_center > self.attack_range {
+            let dx = center.x - self.position.x;
+            let dy = center.y - self.position.y;
+            let dist = (dx * dx + dy * dy).sqrt();
 
-        if dist > 1.0 {
-            let effective_speed = self.speed * self.slow_factor * dt;
-            self.position.x += dx / dist * effective_speed;
-            self.position.y += dy / dist * effective_speed;
+            if dist > 1.0 {
+                let effective_speed = self.speed * self.slow_factor * dt;
+                self.position.x += dx / dist * effective_speed;
+                self.position.y += dy / dist * effective_speed;
+            }
         }
 
         // Tick slow duration
@@ -122,6 +125,7 @@ impl Enemy {
                 is_aoe: false,
                 aoe_radius: 0.0,
                 lifetime: 3.0,
+                target_enemy_id: None,
             })
         } else {
             None

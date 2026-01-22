@@ -60,6 +60,7 @@ pub struct Projectile {
     pub is_aoe: bool,
     pub aoe_radius: f32,
     pub lifetime: f32,
+    pub target_enemy_id: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -156,6 +157,7 @@ impl GameState {
             ) {
                 self.player.attack_cooldown = 1.0 / self.player.attack_speed;
                 let target_pos = self.enemies[target_idx].position.clone();
+                let target_id = self.enemies[target_idx].id;
                 self.projectiles.push(Projectile {
                     origin: self.player.position.clone(),
                     target_pos: target_pos.clone(),
@@ -167,6 +169,7 @@ impl GameState {
                     is_aoe: false,
                     aoe_radius: 0.0,
                     lifetime: 3.0,
+                    target_enemy_id: Some(target_id),
                 });
             }
         }
@@ -183,6 +186,7 @@ impl GameState {
                     let tower = &mut self.towers[i];
                     tower.attack_cooldown = 1.0 / tower.attack_speed;
                     let target_pos = self.enemies[target_idx].position.clone();
+                    let target_id = self.enemies[target_idx].id;
                     self.projectiles.push(Projectile {
                         origin: tower_pos.clone(),
                         target_pos: target_pos.clone(),
@@ -194,6 +198,7 @@ impl GameState {
                         is_aoe: tower.is_aoe,
                         aoe_radius: tower.aoe_radius,
                         lifetime: 3.0,
+                        target_enemy_id: Some(target_id),
                     });
                 }
             }
@@ -204,39 +209,56 @@ impl GameState {
         let mut enemy_hits: Vec<(usize, f32, TowerElement, bool, f32, Point2D)> = Vec::new();
 
         for proj in &mut self.projectiles {
+            // Update target position for homing projectiles
+            if let Some(target_id) = proj.target_enemy_id {
+                if let Some(enemy) = self.enemies.iter().find(|e| e.id == target_id) {
+                    proj.target_pos = enemy.position.clone();
+                }
+            }
+
+            // Move projectile toward target
             let dx = proj.target_pos.x - proj.current_pos.x;
             let dy = proj.target_pos.y - proj.current_pos.y;
-            let dist = (dx * dx + dy * dy).sqrt();
+            let dist_to_target = (dx * dx + dy * dy).sqrt();
 
-            if dist < 8.0 {
-                // Projectile reached target
-                match proj.source {
-                    ProjectileSource::Player | ProjectileSource::Tower(_) => {
-                        // Find enemy near target
-                        for (idx, enemy) in self.enemies.iter().enumerate() {
-                            if enemy.position.distance_to(&proj.target_pos) < enemy.radius + 8.0 {
-                                enemy_hits.push((
-                                    idx,
-                                    proj.damage,
-                                    proj.element,
-                                    proj.is_aoe,
-                                    proj.aoe_radius,
-                                    proj.current_pos.clone(),
-                                ));
-                                break;
-                            }
+            if dist_to_target > 1.0 {
+                let move_dist = proj.speed * dt;
+                proj.current_pos.x += dx / dist_to_target * move_dist;
+                proj.current_pos.y += dy / dist_to_target * move_dist;
+            }
+
+            // Check collision based on source type
+            let mut hit = false;
+            match proj.source {
+                ProjectileSource::Player | ProjectileSource::Tower(_) => {
+                    // Check collision with any enemy near the projectile's current position
+                    for (idx, enemy) in self.enemies.iter().enumerate() {
+                        if enemy.position.distance_to(&proj.current_pos) < enemy.radius + 10.0 {
+                            enemy_hits.push((
+                                idx,
+                                proj.damage,
+                                proj.element,
+                                proj.is_aoe,
+                                proj.aoe_radius,
+                                proj.current_pos.clone(),
+                            ));
+                            hit = true;
+                            break;
                         }
                     }
-                    ProjectileSource::Enemy(_) => {
-                        // Hits the player
+                }
+                ProjectileSource::Enemy(_) => {
+                    // Check collision with player
+                    let player_pos = &self.player.position;
+                    if proj.current_pos.distance_to(player_pos) < self.player.radius + 5.0 {
                         player_damage += proj.damage;
+                        hit = true;
                     }
                 }
+            }
+
+            if hit || dist_to_target < 5.0 {
                 proj.lifetime = 0.0;
-            } else {
-                let move_dist = proj.speed * dt;
-                proj.current_pos.x += dx / dist * move_dist;
-                proj.current_pos.y += dy / dist * move_dist;
             }
 
             proj.lifetime -= dt;
@@ -325,7 +347,13 @@ impl GameState {
         // Check if clicked on a tower
         for (i, tower) in self.towers.iter().enumerate() {
             if tower.position.distance_to(&click_pos) < tower.radius + 10.0 {
-                self.selected_tower = Some(i);
+                if self.selected_tower == Some(i) {
+                    // Re-click on same tower -> deselect
+                    self.selected_tower = None;
+                } else {
+                    // Select new tower (or switch selection)
+                    self.selected_tower = Some(i);
+                }
                 return;
             }
         }
