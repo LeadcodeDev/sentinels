@@ -1,5 +1,28 @@
 use crate::game::elemental::TowerElement;
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum TowerKind {
+    Sentinelle,
+    Inferno,
+    Glacier,
+    Tesla,
+    Seisme,
+    Sniper,
+}
+
+impl TowerKind {
+    pub fn all() -> &'static [TowerKind] {
+        &[
+            TowerKind::Sentinelle,
+            TowerKind::Inferno,
+            TowerKind::Glacier,
+            TowerKind::Tesla,
+            TowerKind::Seisme,
+            TowerKind::Sniper,
+        ]
+    }
+}
+
 #[derive(Clone)]
 pub enum EffectTarget {
     Single,
@@ -87,6 +110,7 @@ pub struct TowerActionDef {
 
 #[derive(Clone)]
 pub struct TowerDef {
+    pub kind: TowerKind,
     pub name: &'static str,
     pub description: &'static str,
     pub element: TowerElement,
@@ -248,6 +272,7 @@ impl TowerActionDef {
 // --- TowerBuilder ---
 
 pub struct TowerBuilder {
+    kind: TowerKind,
     name: &'static str,
     description: &'static str,
     element: TowerElement,
@@ -258,8 +283,9 @@ pub struct TowerBuilder {
 }
 
 impl TowerBuilder {
-    pub fn new(name: &'static str, element: TowerElement) -> Self {
+    pub fn new(kind: TowerKind, name: &'static str, element: TowerElement) -> Self {
         Self {
+            kind,
             name,
             description: "",
             element,
@@ -327,6 +353,7 @@ impl TowerBuilder {
 
     pub fn build(self) -> TowerDef {
         TowerDef {
+            kind: self.kind,
             name: self.name,
             description: self.description,
             element: self.element,
@@ -356,7 +383,7 @@ impl TowerBuilder {
 
 pub fn all_tower_defs() -> Vec<TowerDef> {
     vec![
-        TowerBuilder::new("Sentinelle", TowerElement::Neutral)
+        TowerBuilder::new(TowerKind::Sentinelle, "Sentinelle", TowerElement::Neutral)
             .description("Tour basique equilibree")
             .cost(50)
             .range(140.0, 15.0, 5)
@@ -369,7 +396,7 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                 vec![("Degats", ActionUpgradeTarget::Damage, 3.0, 5)],
             )
             .build(),
-        TowerBuilder::new("Tour Inferno", TowerElement::Fire)
+        TowerBuilder::new(TowerKind::Inferno, "Tour Inferno", TowerElement::Fire)
             .description("Degats de zone + brulure")
             .cost(80)
             .range(110.0, 15.0, 5)
@@ -398,7 +425,7 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                 ],
             )
             .build(),
-        TowerBuilder::new("Tour Glacier", TowerElement::Water)
+        TowerBuilder::new(TowerKind::Glacier, "Tour Glacier", TowerElement::Water)
             .description("Ralentit les ennemis")
             .cost(65)
             .range(135.0, 15.0, 5)
@@ -424,7 +451,7 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                 ],
             )
             .build(),
-        TowerBuilder::new("Tour Tesla", TowerElement::Electric)
+        TowerBuilder::new(TowerKind::Tesla, "Tour Tesla", TowerElement::Electric)
             .description("Attaque rapide electrique")
             .cost(90)
             .range(125.0, 15.0, 5)
@@ -440,7 +467,7 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                 ],
             )
             .build(),
-        TowerBuilder::new("Tour Seisme", TowerElement::Earth)
+        TowerBuilder::new(TowerKind::Seisme, "Tour Seisme", TowerElement::Earth)
             .description("Degats massifs de zone")
             .cost(110)
             .range(90.0, 15.0, 5)
@@ -456,12 +483,25 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                 ],
             )
             .build(),
+        TowerBuilder::new(TowerKind::Sniper, "Tour Sniper", TowerElement::Electric)
+            .description("Attaque rapide electrique")
+            .cost(90)
+            .range(300.0, 15.0, 5)
+            .attack_speed(5.0, 0.2, 5)
+            .action_with_upgrades(
+                TowerAction::ApplyDamage {
+                    target: EffectTarget::Single,
+                    damage: DamageType::Fixed(18.0),
+                },
+                vec![("Degats", ActionUpgradeTarget::Damage, 4.0, 5)],
+            )
+            .build(),
     ]
 }
 
-pub fn get_def(element: TowerElement) -> TowerDef {
+pub fn get_def(kind: TowerKind) -> TowerDef {
     all_tower_defs()
         .into_iter()
-        .find(|d| d.element == element)
+        .find(|d| d.kind == kind)
         .unwrap_or_else(|| all_tower_defs().into_iter().next().unwrap())
 }

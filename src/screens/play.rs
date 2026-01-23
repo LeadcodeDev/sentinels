@@ -85,11 +85,11 @@ impl PlayScreen {
             });
         }
 
-        let element = self.game_state.placement_mode?;
-        let def = get_def(element);
+        let kind = self.game_state.placement_mode?;
+        let def = get_def(kind);
 
         Some(PlacementPreview {
-            element,
+            element: def.element,
             game_pos: Point2D::new(game_x, game_y),
             range: def.range.base,
         })
@@ -120,8 +120,8 @@ impl Render for PlayScreen {
 
             if let Some(tower_idx) = this.game_state.move_mode {
                 this.game_state.try_move_tower(tower_idx, game_x, game_y);
-            } else if let Some(element) = this.game_state.placement_mode.take() {
-                this.game_state.try_place_tower(element, game_x, game_y);
+            } else if let Some(kind) = this.game_state.placement_mode.take() {
+                this.game_state.try_place_tower(kind, game_x, game_y);
             } else {
                 this.game_state.try_select_at(game_x, game_y);
             }

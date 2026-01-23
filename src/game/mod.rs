@@ -6,7 +6,9 @@ pub mod tower;
 pub mod wave;
 
 use crate::data::SaveData;
-use crate::data::tower_defs::{EffectTarget, ResolvedAction, ResolvedDamage, ResolvedEffect};
+use crate::data::tower_defs::{
+    EffectTarget, ResolvedAction, ResolvedDamage, ResolvedEffect, TowerKind,
+};
 use elemental::TowerElement;
 use enemy::Enemy;
 use player::Player;
@@ -60,7 +62,11 @@ pub struct Projectile {
     pub actions: Vec<ResolvedAction>,
     pub lifetime: f32,
     pub target_enemy_id: Option<usize>,
+    /// Fade-out timer: None = active, Some(remaining) = fading out
+    pub fade_timer: Option<f32>,
 }
+
+pub const PROJECTILE_FADE_DURATION: f32 = 0.15;
 
 #[derive(Clone)]
 pub struct Shield {
@@ -129,7 +135,7 @@ pub struct GameState {
     pub economy: Economy,
     pub phase: GamePhase,
     pub viewport_size: (f32, f32),
-    pub placement_mode: Option<TowerElement>,
+    pub placement_mode: Option<TowerKind>,
     pub move_mode: Option<usize>,
     pub selected_tower: Option<usize>,
     pub elapsed: f32,
@@ -250,6 +256,7 @@ impl GameState {
                     }],
                     lifetime: 3.0,
                     target_enemy_id: Some(target_id),
+                    fade_timer: None,
                 });
             }
         }
@@ -280,6 +287,7 @@ impl GameState {
                         actions: resolved,
                         lifetime: 3.0,
                         target_enemy_id: Some(target_id),
+                        fade_timer: None,
                     });
                 }
             }
@@ -290,6 +298,12 @@ impl GameState {
         let mut enemy_hits: Vec<(usize, Vec<ResolvedAction>, TowerElement, Point2D)> = Vec::new();
 
         for proj in &mut self.projectiles {
+            // Tick fade-out for dying projectiles
+            if let Some(ref mut fade) = proj.fade_timer {
+                *fade -= dt;
+                continue;
+            }
+
             // Update target position for homing projectiles
             if let Some(target_id) = proj.target_enemy_id {
                 if let Some(enemy) = self.enemies.iter().find(|e| e.id == target_id) {
@@ -359,7 +373,7 @@ impl GameState {
             }
 
             if hit || dist_to_target < 5.0 {
-                proj.lifetime = 0.0;
+                proj.fade_timer = Some(PROJECTILE_FADE_DURATION);
             }
 
             proj.lifetime -= dt;
@@ -458,7 +472,13 @@ impl GameState {
         });
 
         // 9. Remove expired projectiles and tick AoE splashes
-        self.projectiles.retain(|p| p.lifetime > 0.0);
+        self.projectiles.retain(|p| {
+            if let Some(fade) = p.fade_timer {
+                fade > 0.0
+            } else {
+                p.lifetime > 0.0
+            }
+        });
         for splash in &mut self.aoe_splashes {
             splash.lifetime -= dt;
         }
@@ -494,14 +514,14 @@ impl GameState {
         }
     }
 
-    pub fn try_place_tower(&mut self, element: TowerElement, x: f32, y: f32) {
+    pub fn try_place_tower(&mut self, kind: TowerKind, x: f32, y: f32) {
         use crate::data::tower_defs::get_def;
 
         if self.towers.len() >= self.max_towers as usize {
             return;
         }
 
-        let def = get_def(element);
+        let def = get_def(kind);
         if self.economy.gold < def.base_cost {
             return;
         }
@@ -522,7 +542,7 @@ impl GameState {
 
         self.economy.gold -= def.base_cost;
         let id = self.towers.len();
-        self.towers.push(Tower::from_def(id, element, pos));
+        self.towers.push(Tower::from_def(id, kind, pos));
     }
 
     pub fn try_select_at(&mut self, x: f32, y: f32) {

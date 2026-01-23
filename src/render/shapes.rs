@@ -5,7 +5,7 @@ use crate::game::Shield;
 use crate::game::enemy::Enemy;
 use crate::game::player::Player;
 use crate::game::tower::Tower;
-use crate::game::{Point2D, Projectile, ProjectileSource};
+use crate::game::{PROJECTILE_FADE_DURATION, Point2D, Projectile, ProjectileSource};
 
 fn to_screen(center: Point<Pixels>, game_pos: &Point2D) -> Point<Pixels> {
     point(center.x + px(game_pos.x), center.y + px(game_pos.y))
@@ -280,7 +280,13 @@ pub fn draw_projectile(window: &mut Window, center: Point<Pixels>, proj: &Projec
     let screen_pos = to_screen(center, &proj.current_pos);
     let origin_screen = to_screen(center, &proj.origin);
 
-    // Color: element color for player/tower projectiles, white for enemy projectiles
+    // Fade factor: 1.0 when active, decreases to 0.0 during fade-out
+    let fade = if let Some(timer) = proj.fade_timer {
+        (timer / PROJECTILE_FADE_DURATION).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+
     let color = match proj.source {
         ProjectileSource::Player | ProjectileSource::Tower(_) => proj.element.color(),
         ProjectileSource::Enemy(_) => Hsla {
@@ -291,48 +297,85 @@ pub fn draw_projectile(window: &mut Window, center: Point<Pixels>, proj: &Projec
         },
     };
 
-    // Trail line from origin to current position
-    let trail_color = Hsla {
-        h: color.h,
-        s: color.s,
-        l: color.l,
-        a: 0.3,
-    };
-    draw_line(window, origin_screen, screen_pos, trail_color, 1.0);
+    // Comet trail: segmented trail that fades and shrinks from head to tail
+    let dx = f32::from(screen_pos.x) - f32::from(origin_screen.x);
+    let dy = f32::from(screen_pos.y) - f32::from(origin_screen.y);
+    let trail_len = (dx * dx + dy * dy).sqrt();
 
-    // Projectile dot
-    let proj_radius = match proj.source {
+    let max_trail_len = 80.0_f32;
+    let base_head_width = match proj.source {
+        ProjectileSource::Enemy(_) => 4.0,
+        _ => 6.0,
+    };
+    let head_width = base_head_width * fade;
+    let segments = 12;
+
+    if trail_len > 1.0 && fade > 0.01 {
+        let actual_trail = trail_len.min(max_trail_len) * fade;
+        let dir_x = dx / trail_len;
+        let dir_y = dy / trail_len;
+
+        for i in 0..segments {
+            let t0 = i as f32 / segments as f32;
+            let t1 = (i + 1) as f32 / segments as f32;
+
+            // Points along the trail, from head (t=0) to tail (t=1)
+            let p0x = f32::from(screen_pos.x) - dir_x * actual_trail * t0;
+            let p0y = f32::from(screen_pos.y) - dir_y * actual_trail * t0;
+            let p1x = f32::from(screen_pos.x) - dir_x * actual_trail * t1;
+            let p1y = f32::from(screen_pos.y) - dir_y * actual_trail * t1;
+
+            // Width tapers from head_width to 0
+            let w0 = head_width * (1.0 - t0);
+            let w1 = head_width * (1.0 - t1);
+
+            // Opacity fades from 0.7 at head to 0 at tail, multiplied by fade factor
+            let a0 = 0.7 * (1.0 - t0) * fade;
+            let a1 = 0.7 * (1.0 - t1) * fade;
+            let seg_alpha = (a0 + a1) * 0.5;
+
+            // Perpendicular normal
+            let nx = -dir_y;
+            let ny = dir_x;
+
+            let points = vec![
+                point(px(p0x + nx * w0 * 0.5), px(p0y + ny * w0 * 0.5)),
+                point(px(p1x + nx * w1 * 0.5), px(p1y + ny * w1 * 0.5)),
+                point(px(p1x - nx * w1 * 0.5), px(p1y - ny * w1 * 0.5)),
+                point(px(p0x - nx * w0 * 0.5), px(p0y - ny * w0 * 0.5)),
+            ];
+
+            let seg_color = Hsla {
+                h: color.h,
+                s: color.s,
+                l: color.l,
+                a: seg_alpha,
+            };
+
+            let mut path = Path::new(points[0]);
+            for p in &points[1..] {
+                path.line_to(*p);
+            }
+            path.line_to(points[0]);
+            window.paint_path(path, seg_color);
+        }
+    }
+
+    // Projectile head (bright dot), fades with the trail
+    let base_radius = match proj.source {
         ProjectileSource::Enemy(_) => 3.0,
         _ => 4.0,
     };
-    draw_circle(window, screen_pos, proj_radius, color);
-}
-
-fn draw_line(window: &mut Window, from: Point<Pixels>, to: Point<Pixels>, color: Hsla, width: f32) {
-    let dx = f32::from(to.x) - f32::from(from.x);
-    let dy = f32::from(to.y) - f32::from(from.y);
-    let len = (dx * dx + dy * dy).sqrt();
-    if len < 1.0 {
-        return;
+    let proj_radius = base_radius * fade;
+    let head_color = Hsla {
+        h: color.h,
+        s: color.s,
+        l: color.l,
+        a: color.a * fade,
+    };
+    if proj_radius > 0.5 {
+        draw_circle(window, screen_pos, proj_radius, head_color);
     }
-
-    let nx = -dy / len;
-    let ny = dx / len;
-    let half_w = width / 2.0;
-
-    let points = vec![
-        point(from.x + px(nx * half_w), from.y + px(ny * half_w)),
-        point(to.x + px(nx * half_w), to.y + px(ny * half_w)),
-        point(to.x - px(nx * half_w), to.y - px(ny * half_w)),
-        point(from.x - px(nx * half_w), from.y - px(ny * half_w)),
-    ];
-
-    let mut path = Path::new(points[0]);
-    for p in &points[1..] {
-        path.line_to(*p);
-    }
-    path.line_to(points[0]);
-    window.paint_path(path, color);
 }
 
 pub fn draw_aoe_splash(window: &mut Window, center: Point<Pixels>, splash: &AoeSplash) {

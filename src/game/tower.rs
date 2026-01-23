@@ -1,11 +1,12 @@
 use super::Point2D;
 use super::elemental::TowerElement;
-use crate::data::tower_defs::{ResolvedAction, UpgradeableProp, get_def};
+use crate::data::tower_defs::{ResolvedAction, TowerKind, UpgradeableProp, get_def};
 
 #[derive(Clone)]
 pub struct Tower {
     pub id: usize,
     pub position: Point2D,
+    pub kind: TowerKind,
     pub element: TowerElement,
     pub name: &'static str,
     pub range: UpgradeableProp,
@@ -34,8 +35,8 @@ pub enum TowerUpgradeId {
 }
 
 impl Tower {
-    pub fn from_def(id: usize, element: TowerElement, position: Point2D) -> Self {
-        let def = get_def(element);
+    pub fn from_def(id: usize, kind: TowerKind, position: Point2D) -> Self {
+        let def = get_def(kind);
 
         let actions: Vec<TowerActionState> = def
             .actions
@@ -50,7 +51,8 @@ impl Tower {
         Self {
             id,
             position,
-            element,
+            kind,
+            element: def.element,
             name: def.name,
             range: def.range.clone(),
             attack_speed: def.attack_speed.clone(),
@@ -71,7 +73,7 @@ impl Tower {
 
     /// Returns all available upgrades with their current state
     pub fn get_upgrades(&self) -> Vec<(TowerUpgradeId, &'static str, &UpgradeableProp)> {
-        let def = get_def(self.element);
+        let def = get_def(self.kind);
         let mut result = Vec::new();
 
         // Range upgrade
@@ -175,7 +177,7 @@ impl Tower {
 
     /// Resolve current actions with upgrade levels applied
     pub fn resolved_actions(&self) -> Vec<ResolvedAction> {
-        let mut def = get_def(self.element);
+        let mut def = get_def(self.kind);
 
         // Apply current upgrade levels to the def's actions
         for (action_idx, action_state) in self.actions.iter().enumerate() {

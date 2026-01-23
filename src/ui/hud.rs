@@ -5,8 +5,7 @@ use gpui_component::divider::Divider;
 use gpui_component::progress::Progress;
 use gpui_component::{Disableable, Sizable, Size, h_flex, v_flex};
 
-use crate::data::tower_defs::get_def;
-use crate::game::elemental::TowerElement;
+use crate::data::tower_defs::{TowerKind, get_def};
 use crate::game::tower::TowerUpgradeId;
 use crate::game::{GamePhase, GameState};
 use crate::screens::play::PlayScreen;
@@ -160,11 +159,10 @@ fn tower_grid_section(
 ) -> impl IntoElement + use<> {
     let slots_full = tower_count >= max_towers as usize;
 
-    let neutral = tower_icon(TowerElement::Neutral, gold, slots_full, cx);
-    let fire = tower_icon(TowerElement::Fire, gold, slots_full, cx);
-    let water = tower_icon(TowerElement::Water, gold, slots_full, cx);
-    let electric = tower_icon(TowerElement::Electric, gold, slots_full, cx);
-    let earth = tower_icon(TowerElement::Earth, gold, slots_full, cx);
+    let mut tower_icons: Vec<AnyElement> = Vec::new();
+    for kind in TowerKind::all() {
+        tower_icons.push(tower_icon(*kind, gold, slots_full, cx).into_any_element());
+    }
 
     v_flex()
         .gap_2()
@@ -190,17 +188,7 @@ fn tower_grid_section(
                         .child(format!("{}/{}", tower_count, max_towers)),
                 ),
         )
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .gap_2()
-                .child(neutral)
-                .child(fire)
-                .child(water)
-                .child(electric)
-                .child(earth),
-        )
+        .child(div().flex().flex_wrap().gap_2().children(tower_icons))
 }
 
 fn selected_tower_section(
@@ -239,61 +227,53 @@ fn selected_tower_section(
     for (upgrade_id, uname, ulevel, max_level, cost, bonus, can_afford) in &upgrades {
         let is_maxed = *ulevel >= *max_level;
         let bonus_str = if bonus.fract() == 0.0 {
-            format!("{:.0}", bonus)
+            format!("+{:.0}", bonus)
         } else {
-            format!("{:.1}", bonus)
+            format!("+{:.1}", bonus)
         };
-        let hover_text = if is_maxed {
+        let label_text = if is_maxed {
+            format!("{} MAX", uname)
+        } else {
+            format!("{} ({})", uname, bonus_str)
+        };
+        let btn_label = if is_maxed {
             format!("MAX")
         } else {
-            format!("+{} ({}g)", bonus_str, cost)
+            format!("{}g", cost)
         };
-        let group_name = SharedString::from(format!("upgrade_group_{:?}", upgrade_id));
+        let tooltip_text = SharedString::from(format!("Ameliore {}", uname));
         let uid = *upgrade_id;
 
-        let row = v_flex()
-            .group(group_name.clone())
+        let row = h_flex()
+            .id(SharedString::from(format!("upgrade_row_{:?}", upgrade_id)))
+            .items_center()
+            .justify_between()
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(tooltip_text.clone()).build(window, cx)
+            })
             .child(
                 h_flex()
                     .items_center()
-                    .justify_between()
+                    .gap_1()
+                    .child(div().text_xs().text_color(rgb(0xcccccc)).child(label_text))
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0xcccccc))
-                            .child(format!("{}", uname)),
-                    )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(rgb(0x888888))
-                                    .child(format!("{}/{}", ulevel, max_level)),
-                            )
-                            .child(
-                                Button::new(SharedString::from(format!("btn_upgrade_{:?}", uid)))
-                                    .label("+")
-                                    .compact()
-                                    .with_size(Size::XSmall)
-                                    .disabled(is_maxed || !can_afford)
-                                    .on_click(cx.listener(move |screen, _, _window, _cx| {
-                                        if let Some(idx) = screen.game_state.selected_tower {
-                                            screen.game_state.upgrade_tower(idx, uid);
-                                        }
-                                    })),
-                            ),
+                            .text_color(rgb(0x888888))
+                            .child(format!("{}/{}", ulevel, max_level)),
                     ),
             )
             .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x66aaff))
-                    .hidden()
-                    .group_hover(group_name, |s| s.block())
-                    .child(hover_text),
+                Button::new(SharedString::from(format!("btn_upgrade_{:?}", uid)))
+                    .label(btn_label)
+                    .compact()
+                    .with_size(Size::XSmall)
+                    .disabled(is_maxed || !can_afford)
+                    .on_click(cx.listener(move |screen, _, _window, _cx| {
+                        if let Some(idx) = screen.game_state.selected_tower {
+                            screen.game_state.upgrade_tower(idx, uid);
+                        }
+                    })),
             );
         upgrade_elements.push(row.into_any_element());
     }
@@ -364,15 +344,15 @@ fn selected_tower_section(
 }
 
 fn tower_icon(
-    element: TowerElement,
+    kind: TowerKind,
     gold: u32,
     slots_full: bool,
     cx: &mut Context<PlayScreen>,
 ) -> impl IntoElement + use<> {
-    let def = get_def(element);
+    let def = get_def(kind);
     let cost = def.base_cost;
     let can_afford = gold >= cost && !slots_full;
-    let color = element.color();
+    let color = def.element.color();
     let name = def.name;
 
     let bg_color = Hsla {
@@ -400,7 +380,7 @@ fn tower_icon(
         a: if can_afford { 1.0 } else { 0.4 },
     };
 
-    Button::new(SharedString::from(format!("tower_icon_{:?}", element)))
+    Button::new(SharedString::from(format!("tower_icon_{:?}", kind)))
         .custom(
             ButtonCustomVariant::new(cx)
                 .color(bg_color)
@@ -414,7 +394,7 @@ fn tower_icon(
         .tooltip(SharedString::from(format!("{} - {} or", name, cost)))
         .on_click(cx.listener(move |screen, _, _window, _cx| {
             if can_afford {
-                screen.game_state.placement_mode = Some(element);
+                screen.game_state.placement_mode = Some(kind);
             }
         }))
 }
