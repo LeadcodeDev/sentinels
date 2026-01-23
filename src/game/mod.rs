@@ -59,6 +59,8 @@ pub struct Projectile {
     pub source: ProjectileSource,
     pub is_aoe: bool,
     pub aoe_radius: f32,
+    pub burn_dps: f32,
+    pub burn_duration: f32,
     pub lifetime: f32,
     pub target_enemy_id: Option<usize>,
 }
@@ -246,6 +248,8 @@ impl GameState {
                     source: ProjectileSource::Player,
                     is_aoe: false,
                     aoe_radius: 0.0,
+                    burn_dps: 0.0,
+                    burn_duration: 0.0,
                     lifetime: 3.0,
                     target_enemy_id: Some(target_id),
                 });
@@ -275,6 +279,8 @@ impl GameState {
                         source: ProjectileSource::Tower(i),
                         is_aoe: tower.is_aoe,
                         aoe_radius: tower.aoe_radius,
+                        burn_dps: tower.burn_dps,
+                        burn_duration: tower.burn_duration,
                         lifetime: 3.0,
                         target_enemy_id: Some(target_id),
                     });
@@ -284,7 +290,8 @@ impl GameState {
 
         // 6. Projectile movement + collision
         let mut player_damage: f32 = 0.0;
-        let mut enemy_hits: Vec<(usize, f32, TowerElement, bool, f32, Point2D)> = Vec::new();
+        let mut enemy_hits: Vec<(usize, f32, TowerElement, bool, f32, Point2D, f32, f32)> =
+            Vec::new();
 
         for proj in &mut self.projectiles {
             // Update target position for homing projectiles
@@ -319,6 +326,8 @@ impl GameState {
                                 proj.is_aoe,
                                 proj.aoe_radius,
                                 proj.current_pos.clone(),
+                                proj.burn_dps,
+                                proj.burn_duration,
                             ));
                             hit = true;
                             break;
@@ -359,9 +368,13 @@ impl GameState {
         // 7. Apply damage
         self.player.hp -= player_damage;
 
-        for (idx, damage, element, is_aoe, aoe_radius, pos) in enemy_hits {
+        for (idx, damage, element, is_aoe, aoe_radius, pos, burn_dps, burn_duration) in enemy_hits {
             if idx < self.enemies.len() {
                 self.enemies[idx].take_damage(damage, element);
+
+                if burn_dps > 0.0 && burn_duration > 0.0 {
+                    self.enemies[idx].apply_burn(burn_dps, burn_duration);
+                }
 
                 if is_aoe && aoe_radius > 0.0 {
                     let color = element.color();
@@ -375,6 +388,9 @@ impl GameState {
                     for enemy in &mut self.enemies {
                         if enemy.position.distance_to(&pos) < aoe_radius {
                             enemy.take_damage(damage * 0.5, element);
+                            if burn_dps > 0.0 && burn_duration > 0.0 {
+                                enemy.apply_burn(burn_dps, burn_duration);
+                            }
                         }
                     }
                 }

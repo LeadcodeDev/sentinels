@@ -29,6 +29,12 @@ pub struct AppliedElement {
 }
 
 #[derive(Clone)]
+pub struct BurnState {
+    pub dps: f32,
+    pub remaining: f32,
+}
+
+#[derive(Clone)]
 pub struct Enemy {
     pub id: usize,
     pub position: Point2D,
@@ -46,6 +52,7 @@ pub struct Enemy {
     pub slow_factor: f32,
     pub slow_duration: f32,
     pub is_boss: bool,
+    pub burn: Option<BurnState>,
 }
 
 impl Enemy {
@@ -73,6 +80,7 @@ impl Enemy {
             slow_factor: 1.0,
             slow_duration: 0.0,
             is_boss: shape == EnemyShape::Octagon,
+            burn: None,
         }
     }
 
@@ -101,6 +109,15 @@ impl Enemy {
             self.slow_duration -= dt;
             if self.slow_duration <= 0.0 {
                 self.slow_factor = 1.0;
+            }
+        }
+
+        // Tick burn damage
+        if let Some(ref mut burn) = self.burn {
+            self.hp -= burn.dps * dt;
+            burn.remaining -= dt;
+            if burn.remaining <= 0.0 {
+                self.burn = None;
             }
         }
 
@@ -135,6 +152,8 @@ impl Enemy {
                 source: ProjectileSource::Enemy(self.id),
                 is_aoe: false,
                 aoe_radius: 0.0,
+                burn_dps: 0.0,
+                burn_duration: 0.0,
                 lifetime: 3.0,
                 target_enemy_id: None,
             })
@@ -192,6 +211,19 @@ impl Enemy {
                 // Consume elements on reaction
                 self.applied_elements.clear();
             }
+        }
+    }
+
+    pub fn apply_burn(&mut self, dps: f32, duration: f32) {
+        // Refresh burn with the strongest values
+        if let Some(ref mut burn) = self.burn {
+            burn.dps = burn.dps.max(dps);
+            burn.remaining = burn.remaining.max(duration);
+        } else {
+            self.burn = Some(BurnState {
+                dps,
+                remaining: duration,
+            });
         }
     }
 

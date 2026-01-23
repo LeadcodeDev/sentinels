@@ -183,7 +183,7 @@ pub fn draw_player(window: &mut Window, center: Point<Pixels>, player: &Player) 
     );
 }
 
-pub fn draw_enemy(window: &mut Window, center: Point<Pixels>, enemy: &Enemy) {
+pub fn draw_enemy(window: &mut Window, center: Point<Pixels>, enemy: &Enemy, elapsed: f32) {
     let screen_pos = to_screen(center, &enemy.position);
     let sides = enemy.shape.sides();
 
@@ -205,6 +205,37 @@ pub fn draw_enemy(window: &mut Window, center: Point<Pixels>, enemy: &Enemy) {
 
     let rotation = (enemy.id as f32) * 0.5;
     draw_polygon(window, screen_pos, enemy.radius, sides, color, rotation);
+
+    // Burn indicator: flickering flame particles around the enemy
+    if enemy.burn.is_some() {
+        let particle_count = 4;
+        for i in 0..particle_count {
+            let base_angle = (2.0 * std::f32::consts::PI * i as f32) / particle_count as f32;
+            let flicker = (elapsed * 8.0 + i as f32 * 1.5).sin() * 0.3;
+            let angle = base_angle + flicker;
+            let dist = enemy.radius + 3.0 + (elapsed * 6.0 + i as f32).sin().abs() * 4.0;
+
+            let particle_pos = point(
+                screen_pos.x + px(dist * angle.cos()),
+                screen_pos.y + px(dist * angle.sin()),
+            );
+
+            let hue = 0.05 + (i as f32 * 0.02);
+            let size = 2.5 + (elapsed * 10.0 + i as f32 * 2.0).sin().abs() * 1.5;
+
+            draw_circle(
+                window,
+                particle_pos,
+                size,
+                Hsla {
+                    h: hue,
+                    s: 1.0,
+                    l: 0.55,
+                    a: 0.8,
+                },
+            );
+        }
+    }
 
     // HP bar
     draw_hp_bar(window, screen_pos, enemy.hp, enemy.max_hp, enemy.radius);

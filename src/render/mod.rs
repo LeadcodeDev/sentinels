@@ -24,6 +24,7 @@ pub fn render_game(
     let enemies = game.enemies.clone();
     let projectiles = game.projectiles.clone();
     let aoe_splashes = game.aoe_splashes.clone();
+    let elapsed = game.elapsed;
     let selected_tower = game.selected_tower;
 
     canvas(
@@ -72,7 +73,7 @@ pub fn render_game(
 
             // Draw enemies
             for enemy in &enemies {
-                draw_enemy(window, center, enemy);
+                draw_enemy(window, center, enemy, elapsed);
             }
 
             // Draw projectiles

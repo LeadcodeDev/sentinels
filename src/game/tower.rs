@@ -8,6 +8,8 @@ pub enum TowerUpgradeType {
     Range,
     AttackSpeed,
     AoeRadius,
+    BurnDamage,
+    BurnDuration,
 }
 
 impl TowerUpgradeType {
@@ -17,6 +19,8 @@ impl TowerUpgradeType {
             Self::Range => "Portee",
             Self::AttackSpeed => "Vitesse",
             Self::AoeRadius => "Zone",
+            Self::BurnDamage => "Brulure DPS",
+            Self::BurnDuration => "Brulure duree",
         }
     }
 }
@@ -39,6 +43,8 @@ impl TowerUpgrade {
             TowerUpgradeType::Range => 15.0,
             TowerUpgradeType::AttackSpeed => 0.15,
             TowerUpgradeType::AoeRadius => 10.0,
+            TowerUpgradeType::BurnDamage => 2.0,
+            TowerUpgradeType::BurnDuration => 0.5,
         }
     }
 }
@@ -55,6 +61,8 @@ pub struct Tower {
     pub attack_cooldown: f32,
     pub is_aoe: bool,
     pub aoe_radius: f32,
+    pub burn_dps: f32,
+    pub burn_duration: f32,
     pub radius: f32,
     pub cost: u32,
     pub upgrades: Vec<TowerUpgrade>,
@@ -90,6 +98,20 @@ impl Tower {
             });
         }
 
+        let is_fire = element == TowerElement::Fire;
+        if is_fire {
+            upgrades.push(TowerUpgrade {
+                upgrade_type: TowerUpgradeType::BurnDamage,
+                level: 0,
+                max_level: 5,
+            });
+            upgrades.push(TowerUpgrade {
+                upgrade_type: TowerUpgradeType::BurnDuration,
+                level: 0,
+                max_level: 5,
+            });
+        }
+
         Self {
             id,
             position,
@@ -101,6 +123,8 @@ impl Tower {
             attack_cooldown: 0.0,
             is_aoe: preset.is_aoe,
             aoe_radius: preset.aoe_radius,
+            burn_dps: if is_fire { 3.0 } else { 0.0 },
+            burn_duration: if is_fire { 2.0 } else { 0.0 },
             radius: 14.0,
             cost: preset.base_cost,
             upgrades,
@@ -124,6 +148,8 @@ impl Tower {
             TowerUpgradeType::Range => self.attack_range += bonus,
             TowerUpgradeType::AttackSpeed => self.attack_speed += bonus,
             TowerUpgradeType::AoeRadius => self.aoe_radius += bonus,
+            TowerUpgradeType::BurnDamage => self.burn_dps += bonus,
+            TowerUpgradeType::BurnDuration => self.burn_duration += bonus,
         }
 
         self.level = 1 + self.upgrades.iter().map(|u| u.level).sum::<u32>();
