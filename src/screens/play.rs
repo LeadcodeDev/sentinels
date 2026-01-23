@@ -67,7 +67,6 @@ impl PlayScreen {
     }
 
     fn get_placement_preview(&self) -> Option<PlacementPreview> {
-        let element = self.game_state.placement_mode?;
         let cursor = self.cursor_pos?;
         let sidebar_w = hud::sidebar_width();
         let viewport = self.game_state.viewport_size;
@@ -76,6 +75,17 @@ impl PlayScreen {
         let center_y = viewport.1 / 2.0;
         let game_x = f32::from(cursor.x) - center_x;
         let game_y = f32::from(cursor.y) - center_y;
+
+        if let Some(tower_idx) = self.game_state.move_mode {
+            let tower = self.game_state.towers.get(tower_idx)?;
+            return Some(PlacementPreview {
+                element: tower.element,
+                game_pos: Point2D::new(game_x, game_y),
+                range: tower.attack_range(),
+            });
+        }
+
+        let element = self.game_state.placement_mode?;
         let def = get_def(element);
 
         Some(PlacementPreview {
@@ -108,7 +118,9 @@ impl Render for PlayScreen {
             let game_x = f32::from(event.position.x) - center_x;
             let game_y = f32::from(event.position.y) - center_y;
 
-            if let Some(element) = this.game_state.placement_mode.take() {
+            if let Some(tower_idx) = this.game_state.move_mode {
+                this.game_state.try_move_tower(tower_idx, game_x, game_y);
+            } else if let Some(element) = this.game_state.placement_mode.take() {
                 this.game_state.try_place_tower(element, game_x, game_y);
             } else {
                 this.game_state.try_select_at(game_x, game_y);
@@ -116,6 +128,7 @@ impl Render for PlayScreen {
         });
         let right_click = cx.listener(|this, _, _window, _cx| {
             this.game_state.placement_mode = None;
+            this.game_state.move_mode = None;
             this.game_state.selected_tower = None;
         });
         let mouse_move = cx.listener(|this, event: &MouseMoveEvent, _window, _cx| {
@@ -124,6 +137,7 @@ impl Render for PlayScreen {
         let key_down = cx.listener(|this, event: &KeyDownEvent, _window, _cx| {
             if event.keystroke.key.as_str() == "escape" {
                 this.game_state.placement_mode = None;
+                this.game_state.move_mode = None;
                 this.game_state.selected_tower = None;
             }
         });

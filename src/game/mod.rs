@@ -130,6 +130,7 @@ pub struct GameState {
     pub phase: GamePhase,
     pub viewport_size: (f32, f32),
     pub placement_mode: Option<TowerElement>,
+    pub move_mode: Option<usize>,
     pub selected_tower: Option<usize>,
     pub elapsed: f32,
     pub save_data: SaveData,
@@ -159,6 +160,7 @@ impl GameState {
             phase: GamePhase::Preparing,
             viewport_size: (1200.0, 800.0),
             placement_mode: None,
+            move_mode: None,
             selected_tower: None,
             elapsed: 0.0,
             save_data: save_data.clone(),
@@ -574,6 +576,49 @@ impl GameState {
         self.economy.gold += value;
         self.towers.remove(tower_idx);
         self.selected_tower = None;
+    }
+
+    pub fn move_cost(&self, tower_idx: usize) -> u32 {
+        if tower_idx >= self.towers.len() {
+            return 0;
+        }
+        (self.towers[tower_idx].sell_value() + 3) / 4
+    }
+
+    pub fn try_move_tower(&mut self, tower_idx: usize, x: f32, y: f32) -> bool {
+        if tower_idx >= self.towers.len() {
+            self.move_mode = None;
+            return false;
+        }
+
+        let cost = self.move_cost(tower_idx);
+        if self.economy.gold < cost {
+            self.move_mode = None;
+            return false;
+        }
+
+        let new_pos = Point2D::new(x, y);
+
+        // Check not too close to another tower (skip self)
+        for (i, tower) in self.towers.iter().enumerate() {
+            if i == tower_idx {
+                continue;
+            }
+            if tower.position.distance_to(&new_pos) < 30.0 {
+                return false;
+            }
+        }
+
+        // Check not on top of player
+        if new_pos.distance_to(&Point2D::zero()) < self.player.radius + 20.0 {
+            return false;
+        }
+
+        self.economy.gold -= cost;
+        self.towers[tower_idx].position = new_pos;
+        self.move_mode = None;
+        self.selected_tower = None;
+        true
     }
 }
 

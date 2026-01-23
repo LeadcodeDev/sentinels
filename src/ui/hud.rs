@@ -243,37 +243,73 @@ fn selected_tower_section(
         } else {
             format!("{:.1}", bonus)
         };
-        let label = if is_maxed {
-            format!("{} MAX", uname)
+        let hover_text = if is_maxed {
+            format!("MAX")
         } else {
-            format!("{} +{} ({}g)", uname, bonus_str, cost)
+            format!("+{} ({}g)", bonus_str, cost)
         };
-        let id_str = SharedString::from(format!("sidebar_upgrade_{:?}", upgrade_id));
+        let group_name = SharedString::from(format!("upgrade_group_{:?}", upgrade_id));
         let uid = *upgrade_id;
 
-        let row = h_flex()
-            .items_center()
-            .justify_between()
+        let row = v_flex()
+            .group(group_name.clone())
+            .child(
+                h_flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0xcccccc))
+                            .child(format!("{}", uname)),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x888888))
+                                    .child(format!("{}/{}", ulevel, max_level)),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!("btn_upgrade_{:?}", uid)))
+                                    .label("+")
+                                    .compact()
+                                    .with_size(Size::XSmall)
+                                    .disabled(is_maxed || !can_afford)
+                                    .on_click(cx.listener(move |screen, _, _window, _cx| {
+                                        if let Some(idx) = screen.game_state.selected_tower {
+                                            screen.game_state.upgrade_tower(idx, uid);
+                                        }
+                                    })),
+                            ),
+                    ),
+            )
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x888888))
-                    .child(format!("{}/{}", ulevel, max_level)),
-            )
-            .child(
-                Button::new(id_str)
-                    .label(label)
-                    .compact()
-                    .with_size(Size::Small)
-                    .disabled(is_maxed || !can_afford)
-                    .on_click(cx.listener(move |screen, _, _window, _cx| {
-                        if let Some(idx) = screen.game_state.selected_tower {
-                            screen.game_state.upgrade_tower(idx, uid);
-                        }
-                    })),
+                    .text_color(rgb(0x66aaff))
+                    .hidden()
+                    .group_hover(group_name, |s| s.block())
+                    .child(hover_text),
             );
         upgrade_elements.push(row.into_any_element());
     }
+
+    let move_cost = game.move_cost(tower_idx);
+    let can_move = gold >= move_cost;
+    let move_btn = Button::new("sidebar_move_tower")
+        .label(format!("Deplacer ({}g)", move_cost))
+        .compact()
+        .with_size(Size::Small)
+        .disabled(!can_move)
+        .on_click(cx.listener(move |screen, _, _window, _cx| {
+            if let Some(idx) = screen.game_state.selected_tower {
+                screen.game_state.move_mode = Some(idx);
+            }
+        }));
 
     let sell_btn = Button::new("sidebar_sell_tower")
         .danger()
@@ -320,6 +356,8 @@ fn selected_tower_section(
                     .child("Ameliorations"),
             )
             .children(upgrade_elements)
+            // Move
+            .child(move_btn)
             // Sell
             .child(sell_btn),
     )
