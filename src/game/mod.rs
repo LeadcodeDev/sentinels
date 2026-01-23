@@ -7,7 +7,7 @@ pub mod wave;
 
 use crate::data::SaveData;
 use crate::data::tower_defs::{
-    EffectTarget, ResolvedAction, ResolvedDamage, ResolvedEffect, TowerKind,
+    EffectTarget, ResolvedAction, ResolvedDamage, ResolvedEffect, TowerKind, get_def,
 };
 use elemental::TowerElement;
 use enemy::Enemy;
@@ -64,6 +64,8 @@ pub struct Projectile {
     pub target_enemy_id: Option<usize>,
     /// Fade-out timer: None = active, Some(remaining) = fading out
     pub fade_timer: Option<f32>,
+    /// Projectile visual size (radius of head, affects trail width)
+    pub size: f32,
 }
 
 pub const PROJECTILE_FADE_DURATION: f32 = 0.15;
@@ -257,6 +259,7 @@ impl GameState {
                     lifetime: 3.0,
                     target_enemy_id: Some(target_id),
                     fade_timer: None,
+                    size: 4.0,
                 });
             }
         }
@@ -273,6 +276,7 @@ impl GameState {
                     let tower = &self.towers[i];
                     let resolved = tower.resolved_actions();
                     let element = tower.element;
+                    let proj_size = get_def(tower.kind).projectile_size;
                     let speed_val = tower.attack_speed_value();
                     self.towers[i].attack_cooldown = 1.0 / speed_val;
                     let target_pos = self.enemies[target_idx].position.clone();
@@ -288,6 +292,7 @@ impl GameState {
                         lifetime: 3.0,
                         target_enemy_id: Some(target_id),
                         fade_timer: None,
+                        size: proj_size,
                     });
                 }
             }

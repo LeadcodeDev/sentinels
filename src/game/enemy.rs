@@ -172,6 +172,7 @@ impl Enemy {
                 lifetime: 3.0,
                 target_enemy_id: None,
                 fade_timer: None,
+                size: 3.0,
             })
         } else {
             None

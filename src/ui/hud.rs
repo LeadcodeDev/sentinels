@@ -6,7 +6,6 @@ use gpui_component::progress::Progress;
 use gpui_component::{Disableable, Sizable, Size, h_flex, v_flex};
 
 use crate::data::tower_defs::{TowerKind, get_def};
-use crate::game::tower::TowerUpgradeId;
 use crate::game::{GamePhase, GameState};
 use crate::screens::play::PlayScreen;
 
@@ -200,82 +199,67 @@ fn selected_tower_section(
 
     let color = tower.element.color();
     let name = tower.name;
-    let range = tower.attack_range();
-    let speed = tower.attack_speed_value();
     let sell_value = tower.sell_value();
     let gold = game.economy.gold;
 
-    // Collect upgrades
-    let upgrades: Vec<(TowerUpgradeId, &'static str, u32, u32, u32, f32, bool)> = tower
-        .get_upgrades()
-        .into_iter()
-        .map(|(id, name, prop)| {
-            let can_afford = prop.can_upgrade() && gold >= prop.cost();
-            (
-                id,
-                name,
-                prop.current_level,
-                prop.max_level,
-                prop.cost(),
-                prop.bonus_per_level,
-                can_afford,
-            )
-        })
-        .collect();
+    // Build stat rows: each stat shows its current value, and if upgradeable, a button with bonus
+    let upgrades = tower.get_upgrades();
 
-    let mut upgrade_elements: Vec<AnyElement> = Vec::new();
-    for (upgrade_id, uname, ulevel, max_level, cost, bonus, can_afford) in &upgrades {
-        let is_maxed = *ulevel >= *max_level;
-        let bonus_str = if bonus.fract() == 0.0 {
-            format!("+{:.0}", bonus)
-        } else {
-            format!("+{:.1}", bonus)
-        };
-        let label_text = if is_maxed {
-            format!("{} MAX", uname)
-        } else {
-            format!("{} ({})", uname, bonus_str)
-        };
-        let btn_label = if is_maxed {
-            format!("MAX")
-        } else {
-            format!("{}g", cost)
-        };
-        let tooltip_text = SharedString::from(format!("Ameliore {}", uname));
+    let mut stat_elements: Vec<AnyElement> = Vec::new();
+    for (upgrade_id, uname, prop) in &upgrades {
+        let current_value = prop.value();
+        let is_maxed = !prop.can_upgrade();
         let uid = *upgrade_id;
 
-        let row = h_flex()
-            .id(SharedString::from(format!("upgrade_row_{:?}", upgrade_id)))
+        // Format value
+        let value_str = if current_value.fract() == 0.0 {
+            format!("{:.0}", current_value)
+        } else {
+            format!("{:.2}", current_value)
+        };
+
+        let mut row = h_flex()
+            .id(SharedString::from(format!("stat_row_{:?}", upgrade_id)))
             .items_center()
             .justify_between()
-            .tooltip(move |window, cx| {
-                gpui_component::tooltip::Tooltip::new(tooltip_text.clone()).build(window, cx)
-            })
             .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0xcccccc))
+                    .child(format!("{}: {}", uname, value_str)),
+            );
+
+        if !is_maxed {
+            let cost = prop.cost();
+            let bonus = prop.bonus_per_level;
+            let can_afford = gold >= cost;
+            let bonus_str = if bonus.fract() == 0.0 {
+                format!("+{:.0}", bonus)
+            } else {
+                format!("+{:.1}", bonus)
+            };
+
+            row = row.child(
                 h_flex()
                     .items_center()
                     .gap_1()
-                    .child(div().text_xs().text_color(rgb(0xcccccc)).child(label_text))
+                    .child(div().text_xs().text_color(rgb(0x888888)).child(bonus_str))
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x888888))
-                            .child(format!("{}/{}", ulevel, max_level)),
+                        Button::new(SharedString::from(format!("btn_upgrade_{:?}", uid)))
+                            .label(format!("{}g", cost))
+                            .compact()
+                            .with_size(Size::XSmall)
+                            .disabled(!can_afford)
+                            .on_click(cx.listener(move |screen, _, _window, _cx| {
+                                if let Some(idx) = screen.game_state.selected_tower {
+                                    screen.game_state.upgrade_tower(idx, uid);
+                                }
+                            })),
                     ),
-            )
-            .child(
-                Button::new(SharedString::from(format!("btn_upgrade_{:?}", uid)))
-                    .label(btn_label)
-                    .compact()
-                    .with_size(Size::XSmall)
-                    .disabled(is_maxed || !can_afford)
-                    .on_click(cx.listener(move |screen, _, _window, _cx| {
-                        if let Some(idx) = screen.game_state.selected_tower {
-                            screen.game_state.upgrade_tower(idx, uid);
-                        }
-                    })),
             );
-        upgrade_elements.push(row.into_any_element());
+        }
+
+        stat_elements.push(row.into_any_element());
     }
 
     let move_cost = game.move_cost(tower_idx);
@@ -319,23 +303,8 @@ fn selected_tower_section(
             }))
             // Header
             .child(div().text_sm().text_color(color).child(name))
-            // Stats
-            .child(
-                v_flex()
-                    .gap_1()
-                    .text_xs()
-                    .text_color(rgb(0xcccccc))
-                    .child(format!("Portee: {:.0}", range))
-                    .child(format!("Vitesse: {:.2}/s", speed)),
-            )
-            // Upgrades header
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0xaaaaaa))
-                    .child("Ameliorations"),
-            )
-            .children(upgrade_elements)
+            // Stats with inline upgrades
+            .children(stat_elements)
             // Move
             .child(move_btn)
             // Sell

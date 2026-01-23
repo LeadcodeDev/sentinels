@@ -35,21 +35,22 @@ pub fn render_game(
                 bounds.origin.y + bounds.size.height / 2.0,
             );
 
-            // Draw tower range circles
-            for (i, tower) in towers.iter().enumerate() {
-                let alpha = if selected_tower == Some(i) { 0.3 } else { 0.1 };
-                draw_circle_outline(
-                    window,
-                    center,
-                    &tower.position,
-                    tower.attack_range(),
-                    Hsla {
-                        h: 0.0,
-                        s: 0.0,
-                        l: 0.5,
-                        a: alpha,
-                    },
-                );
+            // Draw selected tower range circle
+            if let Some(sel) = selected_tower {
+                if let Some(tower) = towers.get(sel) {
+                    draw_circle_outline(
+                        window,
+                        center,
+                        &tower.position,
+                        tower.attack_range(),
+                        Hsla {
+                            h: 0.0,
+                            s: 0.0,
+                            l: 0.5,
+                            a: 0.3,
+                        },
+                    );
+                }
             }
 
             // Draw player range circle
@@ -128,7 +129,7 @@ pub fn render_game(
                         l: color.l,
                         a: 0.5,
                     },
-                    16,
+                    48,
                 );
             }
         },

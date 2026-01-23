@@ -1,3 +1,5 @@
+use std::f64::INFINITY;
+
 use crate::game::elemental::TowerElement;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -115,6 +117,7 @@ pub struct TowerDef {
     pub description: &'static str,
     pub element: TowerElement,
     pub base_cost: u32,
+    pub projectile_size: f32,
     pub range: UpgradeableProp,
     pub attack_speed: UpgradeableProp,
     pub actions: Vec<TowerActionDef>,
@@ -277,6 +280,7 @@ pub struct TowerBuilder {
     description: &'static str,
     element: TowerElement,
     base_cost: u32,
+    projectile_size: f32,
     range: (f32, f32, u32),
     attack_speed: (f32, f32, u32),
     actions: Vec<TowerActionDef>,
@@ -290,6 +294,7 @@ impl TowerBuilder {
             description: "",
             element,
             base_cost: 50,
+            projectile_size: 4.0,
             range: (100.0, 15.0, 5),
             attack_speed: (1.0, 0.15, 5),
             actions: Vec::new(),
@@ -303,6 +308,11 @@ impl TowerBuilder {
 
     pub fn cost(mut self, cost: u32) -> Self {
         self.base_cost = cost;
+        self
+    }
+
+    pub fn projectile_size(mut self, size: f32) -> Self {
+        self.projectile_size = size;
         self
     }
 
@@ -358,6 +368,7 @@ impl TowerBuilder {
             description: self.description,
             element: self.element,
             base_cost: self.base_cost,
+            projectile_size: self.projectile_size,
             range: UpgradeableProp {
                 base: self.range.0,
                 bonus_per_level: self.range.1,
@@ -488,9 +499,10 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
             .cost(90)
             .range(300.0, 15.0, 5)
             .attack_speed(5.0, 0.2, 5)
+            .projectile_size(2.0)
             .action_with_upgrades(
                 TowerAction::ApplyDamage {
-                    target: EffectTarget::Single,
+                    target: EffectTarget::Multi(INFINITY as u32),
                     damage: DamageType::Fixed(18.0),
                 },
                 vec![("Degats", ActionUpgradeTarget::Damage, 4.0, 5)],

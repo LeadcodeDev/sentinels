@@ -303,11 +303,7 @@ pub fn draw_projectile(window: &mut Window, center: Point<Pixels>, proj: &Projec
     let trail_len = (dx * dx + dy * dy).sqrt();
 
     let max_trail_len = 80.0_f32;
-    let base_head_width = match proj.source {
-        ProjectileSource::Enemy(_) => 4.0,
-        _ => 6.0,
-    };
-    let head_width = base_head_width * fade;
+    let head_width = proj.size * 1.5 * fade;
     let segments = 12;
 
     if trail_len > 1.0 && fade > 0.01 {
@@ -362,11 +358,7 @@ pub fn draw_projectile(window: &mut Window, center: Point<Pixels>, proj: &Projec
     }
 
     // Projectile head (bright dot), fades with the trail
-    let base_radius = match proj.source {
-        ProjectileSource::Enemy(_) => 3.0,
-        _ => 4.0,
-    };
-    let proj_radius = base_radius * fade;
+    let proj_radius = proj.size * fade;
     let head_color = Hsla {
         h: color.h,
         s: color.s,
