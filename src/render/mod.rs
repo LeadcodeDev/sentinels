@@ -23,6 +23,7 @@ pub fn render_game(
     let towers = game.towers.clone();
     let enemies = game.enemies.clone();
     let projectiles = game.projectiles.clone();
+    let aoe_splashes = game.aoe_splashes.clone();
     let selected_tower = game.selected_tower;
 
     canvas(
@@ -77,6 +78,11 @@ pub fn render_game(
             // Draw projectiles
             for proj in &projectiles {
                 draw_projectile(window, center, proj);
+            }
+
+            // Draw AoE splash effects
+            for splash in &aoe_splashes {
+                draw_aoe_splash(window, center, splash);
             }
 
             // Draw player

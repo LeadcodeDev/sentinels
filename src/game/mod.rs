@@ -102,6 +102,15 @@ impl Shield {
 }
 
 #[derive(Clone)]
+pub struct AoeSplash {
+    pub position: Point2D,
+    pub radius: f32,
+    pub color: (f32, f32, f32), // h, s, l
+    pub lifetime: f32,
+    pub max_lifetime: f32,
+}
+
+#[derive(Clone)]
 pub struct Economy {
     pub gold: u32,
     pub score: u32,
@@ -113,8 +122,10 @@ pub struct GameState {
     pub player: Player,
     pub shield: Shield,
     pub towers: Vec<Tower>,
+    pub max_towers: u32,
     pub enemies: Vec<Enemy>,
     pub projectiles: Vec<Projectile>,
+    pub aoe_splashes: Vec<AoeSplash>,
     pub wave_manager: WaveManager,
     pub economy: Economy,
     pub phase: GamePhase,
@@ -129,13 +140,16 @@ impl GameState {
     pub fn new(save_data: &SaveData) -> Self {
         let bonus_gold = save_data.get_upgrade_level("bonus_gold") as u32 * 50;
         let shield_level = save_data.get_upgrade_level("shield");
+        let tower_slots_level = save_data.get_upgrade_level("tower_slots");
 
         Self {
             player: Player::new(),
             shield: Shield::new(shield_level),
             towers: Vec::new(),
+            max_towers: 5 + tower_slots_level,
             enemies: Vec::new(),
             projectiles: Vec::new(),
+            aoe_splashes: Vec::new(),
             wave_manager: WaveManager::new(),
             economy: Economy {
                 gold: 500 + bonus_gold,
@@ -350,6 +364,14 @@ impl GameState {
                 self.enemies[idx].take_damage(damage, element);
 
                 if is_aoe && aoe_radius > 0.0 {
+                    let color = element.color();
+                    self.aoe_splashes.push(AoeSplash {
+                        position: pos.clone(),
+                        radius: aoe_radius,
+                        color: (color.h, color.s, color.l),
+                        lifetime: 0.4,
+                        max_lifetime: 0.4,
+                    });
                     for enemy in &mut self.enemies {
                         if enemy.position.distance_to(&pos) < aoe_radius {
                             enemy.take_damage(damage * 0.5, element);
@@ -364,11 +386,12 @@ impl GameState {
             if e.is_dead() {
                 self.economy.gold += e.gold_value;
                 self.economy.score += e.gold_value;
-                // Pepite drops: bosses always drop 3-5, others 10% chance for 1
+                // Pepite drops: bosses always drop 3-5 + bonus tower slot, others 10% chance for 1
                 if e.is_boss {
                     use rand::Rng;
                     let mut rng = rand::thread_rng();
                     self.economy.pepites += rng.r#gen_range(3..=5);
+                    self.max_towers += 1;
                 } else {
                     use rand::Rng;
                     let mut rng = rand::thread_rng();
@@ -382,8 +405,12 @@ impl GameState {
             }
         });
 
-        // 9. Remove expired projectiles
+        // 9. Remove expired projectiles and tick AoE splashes
         self.projectiles.retain(|p| p.lifetime > 0.0);
+        for splash in &mut self.aoe_splashes {
+            splash.lifetime -= dt;
+        }
+        self.aoe_splashes.retain(|s| s.lifetime > 0.0);
 
         // 10. Remove enemies that reached the player (no shield)
         let player_radius = self.player.radius;
@@ -417,6 +444,10 @@ impl GameState {
 
     pub fn try_place_tower(&mut self, element: TowerElement, x: f32, y: f32) {
         use crate::data::tower_presets::get_preset;
+
+        if self.towers.len() >= self.max_towers as usize {
+            return;
+        }
 
         let preset = get_preset(element);
         if self.economy.gold < preset.base_cost {

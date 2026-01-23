@@ -82,6 +82,14 @@ pub const SHOP_UPGRADES: &[ShopUpgradeDef] = &[
         base_cost: 100,
         cost_per_level: 200,
     },
+    ShopUpgradeDef {
+        id: "tower_slots",
+        name: "Slots de tourelles",
+        description: "+1 emplacement de tourelle par niveau",
+        max_level: 10,
+        base_cost: 150,
+        cost_per_level: 100,
+    },
 ];
 
 impl SaveData {

@@ -53,7 +53,8 @@ impl Enemy {
         use crate::data::enemy_types::get_preset;
 
         let preset = get_preset(shape);
-        let hp_scale = 1.0 + 0.08 * wave_number as f32;
+        let hp_scale = 1.0 + 0.04 * wave_number as f32;
+        let damage_scale = 1.0 + 0.02 * wave_number as f32;
 
         Self {
             id,
@@ -62,7 +63,7 @@ impl Enemy {
             hp: preset.base_hp * hp_scale,
             max_hp: preset.base_hp * hp_scale,
             speed: preset.base_speed,
-            damage: preset.base_damage,
+            damage: preset.base_damage * damage_scale,
             attack_range: preset.attack_range,
             attack_speed: preset.attack_speed,
             attack_cooldown: 0.0,

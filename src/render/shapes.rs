@@ -1,5 +1,6 @@
 use gpui::*;
 
+use crate::game::AoeSplash;
 use crate::game::Shield;
 use crate::game::enemy::Enemy;
 use crate::game::player::Player;
@@ -301,6 +302,86 @@ fn draw_line(window: &mut Window, from: Point<Pixels>, to: Point<Pixels>, color:
     }
     path.line_to(points[0]);
     window.paint_path(path, color);
+}
+
+pub fn draw_aoe_splash(window: &mut Window, center: Point<Pixels>, splash: &AoeSplash) {
+    let screen_pos = point(
+        center.x + px(splash.position.x),
+        center.y + px(splash.position.y),
+    );
+
+    // Progress: 0.0 (just spawned) -> 1.0 (expired)
+    let progress = 1.0 - (splash.lifetime / splash.max_lifetime);
+
+    // Expanding ring: starts small, grows to full radius
+    let current_radius = splash.radius * (0.3 + 0.7 * progress);
+
+    // Fading alpha
+    let alpha = 0.4 * (1.0 - progress);
+
+    let (h, s, l) = splash.color;
+
+    // Filled circle (fading out)
+    draw_circle(
+        window,
+        screen_pos,
+        current_radius,
+        Hsla {
+            h,
+            s,
+            l,
+            a: alpha * 0.3,
+        },
+    );
+
+    // Outline ring (more visible)
+    let segments = 24u32;
+    let ring_alpha = alpha * 0.8;
+    for i in 0..segments {
+        let angle1 = (2.0 * std::f32::consts::PI * i as f32) / segments as f32;
+        let angle2 = (2.0 * std::f32::consts::PI * (i + 1) as f32) / segments as f32;
+
+        let p1 = point(
+            screen_pos.x + px(current_radius * angle1.cos()),
+            screen_pos.y + px(current_radius * angle1.sin()),
+        );
+        let p2 = point(
+            screen_pos.x + px(current_radius * angle2.cos()),
+            screen_pos.y + px(current_radius * angle2.sin()),
+        );
+
+        let dx = f32::from(p2.x) - f32::from(p1.x);
+        let dy = f32::from(p2.y) - f32::from(p1.y);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 0.1 {
+            continue;
+        }
+        let nx = -dy / len;
+        let ny = dx / len;
+        let half_width = 1.5 * (1.0 - progress);
+
+        let points = vec![
+            point(p1.x + px(nx * half_width), p1.y + px(ny * half_width)),
+            point(p2.x + px(nx * half_width), p2.y + px(ny * half_width)),
+            point(p2.x - px(nx * half_width), p2.y - px(ny * half_width)),
+            point(p1.x - px(nx * half_width), p1.y - px(ny * half_width)),
+        ];
+
+        let mut path = Path::new(points[0]);
+        for p in &points[1..] {
+            path.line_to(*p);
+        }
+        path.line_to(points[0]);
+        window.paint_path(
+            path,
+            Hsla {
+                h,
+                s,
+                l: l + 0.2,
+                a: ring_alpha,
+            },
+        );
+    }
 }
 
 pub fn draw_shield(window: &mut Window, center: Point<Pixels>, shield: &Shield) {

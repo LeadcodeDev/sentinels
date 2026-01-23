@@ -25,6 +25,7 @@ pub fn render_sidebar(game: &GameState, cx: &mut Context<PlayScreen>) -> impl In
     let score = game.economy.score;
     let phase = game.phase;
     let tower_count = game.towers.len();
+    let max_towers = game.max_towers;
     let player_gold = game.economy.gold;
     let shield = game.shield.clone();
 
@@ -51,17 +52,10 @@ pub fn render_sidebar(game: &GameState, cx: &mut Context<PlayScreen>) -> impl In
         .gap_3()
         // Stats section
         .child(stats_section(
-            hp,
-            max_hp,
-            gold,
-            pepites,
-            wave,
-            score,
-            tower_count,
-            &shield,
+            hp, max_hp, gold, pepites, wave, score, &shield,
         ))
         // Tower grid section
-        .child(tower_grid_section(player_gold, cx))
+        .child(tower_grid_section(player_gold, tower_count, max_towers, cx))
         // Selected tower section (scrollable)
         .when_some(selected_section, |this, section| this.child(section))
         // Bottom: wave button or game over
@@ -96,7 +90,6 @@ fn stats_section(
     pepites: u32,
     wave: u32,
     score: u32,
-    tower_count: usize,
     shield: &crate::game::Shield,
 ) -> impl IntoElement {
     let shield_unlocked = shield.is_unlocked();
@@ -156,15 +149,21 @@ fn stats_section(
         .child(stat_row("Pepites", format!("{}", pepites), rgb(0xcc66ff)))
         .child(stat_row("Vague", format!("{}", wave), rgb(0xffffff)))
         .child(stat_row("Score", format!("{}", score), rgb(0xffffff)))
-        .child(stat_row("Tours", format!("{}", tower_count), rgb(0xffffff)))
 }
 
-fn tower_grid_section(gold: u32, cx: &mut Context<PlayScreen>) -> impl IntoElement + use<> {
-    let neutral = tower_icon(TowerElement::Neutral, gold, cx);
-    let fire = tower_icon(TowerElement::Fire, gold, cx);
-    let water = tower_icon(TowerElement::Water, gold, cx);
-    let electric = tower_icon(TowerElement::Electric, gold, cx);
-    let earth = tower_icon(TowerElement::Earth, gold, cx);
+fn tower_grid_section(
+    gold: u32,
+    tower_count: usize,
+    max_towers: u32,
+    cx: &mut Context<PlayScreen>,
+) -> impl IntoElement + use<> {
+    let slots_full = tower_count >= max_towers as usize;
+
+    let neutral = tower_icon(TowerElement::Neutral, gold, slots_full, cx);
+    let fire = tower_icon(TowerElement::Fire, gold, slots_full, cx);
+    let water = tower_icon(TowerElement::Water, gold, slots_full, cx);
+    let electric = tower_icon(TowerElement::Electric, gold, slots_full, cx);
+    let earth = tower_icon(TowerElement::Earth, gold, slots_full, cx);
 
     v_flex()
         .gap_2()
@@ -174,7 +173,22 @@ fn tower_grid_section(gold: u32, cx: &mut Context<PlayScreen>) -> impl IntoEleme
             l: 0.25,
             a: 1.0,
         }))
-        .child(div().text_xs().text_color(rgb(0xaaaaaa)).child("Tours"))
+        .child(
+            h_flex()
+                .items_center()
+                .justify_between()
+                .child(div().text_xs().text_color(rgb(0xaaaaaa)).child("Tours"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(if slots_full {
+                            rgb(0xff6666)
+                        } else {
+                            rgb(0x888888)
+                        })
+                        .child(format!("{}/{}", tower_count, max_towers)),
+                ),
+        )
         .child(
             div()
                 .flex()
@@ -320,11 +334,12 @@ fn selected_tower_section(
 fn tower_icon(
     element: TowerElement,
     gold: u32,
+    slots_full: bool,
     cx: &mut Context<PlayScreen>,
 ) -> impl IntoElement + use<> {
     let preset = get_preset(element);
     let cost = preset.base_cost;
-    let can_afford = gold >= cost;
+    let can_afford = gold >= cost && !slots_full;
     let color = element.color();
     let name = preset.name;
 
