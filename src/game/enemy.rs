@@ -1,5 +1,6 @@
 use super::elemental::TowerElement;
 use super::{Point2D, Projectile, ProjectileSource};
+use crate::data::tower_defs::{EffectTarget, ResolvedAction, ResolvedDamage};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum EnemyShape {
@@ -51,6 +52,7 @@ pub struct Enemy {
     pub applied_elements: Vec<AppliedElement>,
     pub slow_factor: f32,
     pub slow_duration: f32,
+    pub stun_duration: f32,
     pub is_boss: bool,
     pub burn: Option<BurnState>,
 }
@@ -79,28 +81,38 @@ impl Enemy {
             applied_elements: Vec::new(),
             slow_factor: 1.0,
             slow_duration: 0.0,
+            stun_duration: 0.0,
             is_boss: shape == EnemyShape::Octagon,
             burn: None,
         }
     }
 
     pub fn tick(&mut self, dt: f32, center: &Point2D, shield_radius: Option<f32>) {
-        // Stop distance: shield border if active, otherwise attack range from center
-        let stop_distance = match shield_radius {
-            Some(r) => r,
-            None => self.attack_range,
-        };
+        // Tick stun
+        if self.stun_duration > 0.0 {
+            self.stun_duration -= dt;
+        }
 
-        let dist_to_center = self.position.distance_to(center);
-        if dist_to_center > stop_distance {
-            let dx = center.x - self.position.x;
-            let dy = center.y - self.position.y;
-            let dist = (dx * dx + dy * dy).sqrt();
+        let is_stunned = self.stun_duration > 0.0;
 
-            if dist > 1.0 {
-                let effective_speed = self.speed * self.slow_factor * dt;
-                self.position.x += dx / dist * effective_speed;
-                self.position.y += dy / dist * effective_speed;
+        // Movement (blocked by stun)
+        if !is_stunned {
+            let stop_distance = match shield_radius {
+                Some(r) => r,
+                None => self.attack_range,
+            };
+
+            let dist_to_center = self.position.distance_to(center);
+            if dist_to_center > stop_distance {
+                let dx = center.x - self.position.x;
+                let dy = center.y - self.position.y;
+                let dist = (dx * dx + dy * dy).sqrt();
+
+                if dist > 1.0 {
+                    let effective_speed = self.speed * self.slow_factor * dt;
+                    self.position.x += dx / dist * effective_speed;
+                    self.position.y += dy / dist * effective_speed;
+                }
             }
         }
 
@@ -134,6 +146,10 @@ impl Enemy {
         target_radius: f32,
         dt: f32,
     ) -> Option<Projectile> {
+        if self.stun_duration > 0.0 {
+            return None;
+        }
+
         let dist = self.position.distance_to(target_pos);
         if dist > target_radius + self.attack_range {
             return None;
@@ -147,13 +163,12 @@ impl Enemy {
                 target_pos: target_pos.clone(),
                 current_pos: self.position.clone(),
                 speed: 200.0,
-                damage: self.damage,
                 element: TowerElement::Neutral,
                 source: ProjectileSource::Enemy(self.id),
-                is_aoe: false,
-                aoe_radius: 0.0,
-                burn_dps: 0.0,
-                burn_duration: 0.0,
+                actions: vec![ResolvedAction::ApplyDamage {
+                    target: EffectTarget::Single,
+                    damage: ResolvedDamage::Fixed(self.damage),
+                }],
                 lifetime: 3.0,
                 target_enemy_id: None,
             })
@@ -212,6 +227,18 @@ impl Enemy {
                 self.applied_elements.clear();
             }
         }
+    }
+
+    pub fn apply_slow(&mut self, ratio: f32, duration: f32) {
+        // Lower ratio = slower; keep the strongest slow
+        if ratio < self.slow_factor || duration > self.slow_duration {
+            self.slow_factor = self.slow_factor.min(ratio);
+            self.slow_duration = self.slow_duration.max(duration);
+        }
+    }
+
+    pub fn apply_stun(&mut self, duration: f32) {
+        self.stun_duration = self.stun_duration.max(duration);
     }
 
     pub fn apply_burn(&mut self, dps: f32, duration: f32) {

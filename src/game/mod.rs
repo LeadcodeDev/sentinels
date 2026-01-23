@@ -6,6 +6,7 @@ pub mod tower;
 pub mod wave;
 
 use crate::data::SaveData;
+use crate::data::tower_defs::{EffectTarget, ResolvedAction, ResolvedDamage, ResolvedEffect};
 use elemental::TowerElement;
 use enemy::Enemy;
 use player::Player;
@@ -54,13 +55,9 @@ pub struct Projectile {
     pub target_pos: Point2D,
     pub current_pos: Point2D,
     pub speed: f32,
-    pub damage: f32,
     pub element: TowerElement,
     pub source: ProjectileSource,
-    pub is_aoe: bool,
-    pub aoe_radius: f32,
-    pub burn_dps: f32,
-    pub burn_duration: f32,
+    pub actions: Vec<ResolvedAction>,
     pub lifetime: f32,
     pub target_enemy_id: Option<usize>,
 }
@@ -243,13 +240,12 @@ impl GameState {
                     target_pos: target_pos.clone(),
                     current_pos: self.player.position.clone(),
                     speed: 400.0,
-                    damage: self.player.attack_damage,
                     element: self.player.element,
                     source: ProjectileSource::Player,
-                    is_aoe: false,
-                    aoe_radius: 0.0,
-                    burn_dps: 0.0,
-                    burn_duration: 0.0,
+                    actions: vec![ResolvedAction::ApplyDamage {
+                        target: EffectTarget::Single,
+                        damage: ResolvedDamage::Fixed(self.player.attack_damage),
+                    }],
                     lifetime: 3.0,
                     target_enemy_id: Some(target_id),
                 });
@@ -261,12 +257,15 @@ impl GameState {
             self.towers[i].attack_cooldown -= dt;
             if self.towers[i].attack_cooldown <= 0.0 {
                 let tower_pos = self.towers[i].position.clone();
-                let tower_range = self.towers[i].attack_range;
+                let tower_range = self.towers[i].attack_range();
                 if let Some(target_idx) =
                     find_nearest_in_range(&tower_pos, tower_range, &self.enemies)
                 {
-                    let tower = &mut self.towers[i];
-                    tower.attack_cooldown = 1.0 / tower.attack_speed;
+                    let tower = &self.towers[i];
+                    let resolved = tower.resolved_actions();
+                    let element = tower.element;
+                    let speed_val = tower.attack_speed_value();
+                    self.towers[i].attack_cooldown = 1.0 / speed_val;
                     let target_pos = self.enemies[target_idx].position.clone();
                     let target_id = self.enemies[target_idx].id;
                     self.projectiles.push(Projectile {
@@ -274,13 +273,9 @@ impl GameState {
                         target_pos: target_pos.clone(),
                         current_pos: tower_pos,
                         speed: 350.0,
-                        damage: tower.attack_damage,
-                        element: tower.element,
+                        element,
                         source: ProjectileSource::Tower(i),
-                        is_aoe: tower.is_aoe,
-                        aoe_radius: tower.aoe_radius,
-                        burn_dps: tower.burn_dps,
-                        burn_duration: tower.burn_duration,
+                        actions: resolved,
                         lifetime: 3.0,
                         target_enemy_id: Some(target_id),
                     });
@@ -290,8 +285,7 @@ impl GameState {
 
         // 6. Projectile movement + collision
         let mut player_damage: f32 = 0.0;
-        let mut enemy_hits: Vec<(usize, f32, TowerElement, bool, f32, Point2D, f32, f32)> =
-            Vec::new();
+        let mut enemy_hits: Vec<(usize, Vec<ResolvedAction>, TowerElement, Point2D)> = Vec::new();
 
         for proj in &mut self.projectiles {
             // Update target position for homing projectiles
@@ -316,18 +310,13 @@ impl GameState {
             let mut hit = false;
             match proj.source {
                 ProjectileSource::Player | ProjectileSource::Tower(_) => {
-                    // Check collision with any enemy near the projectile's current position
                     for (idx, enemy) in self.enemies.iter().enumerate() {
                         if enemy.position.distance_to(&proj.current_pos) < enemy.radius + 10.0 {
                             enemy_hits.push((
                                 idx,
-                                proj.damage,
+                                proj.actions.clone(),
                                 proj.element,
-                                proj.is_aoe,
-                                proj.aoe_radius,
                                 proj.current_pos.clone(),
-                                proj.burn_dps,
-                                proj.burn_duration,
                             ));
                             hit = true;
                             break;
@@ -336,11 +325,23 @@ impl GameState {
                 }
                 ProjectileSource::Enemy(_) => {
                     let player_pos = &self.player.position;
-                    // Check collision with shield first
+                    // Extract damage from enemy projectile actions
+                    let damage = proj
+                        .actions
+                        .iter()
+                        .map(|a| match a {
+                            ResolvedAction::ApplyDamage {
+                                damage: ResolvedDamage::Fixed(d),
+                                ..
+                            } => *d,
+                            _ => 0.0,
+                        })
+                        .sum::<f32>();
+
                     if self.shield.active {
                         let dist_to_center = proj.current_pos.distance_to(player_pos);
                         if dist_to_center < self.shield.radius + 5.0 {
-                            self.shield.hp -= proj.damage;
+                            self.shield.hp -= damage;
                             if self.shield.hp <= 0.0 {
                                 self.shield.hp = 0.0;
                                 self.shield.active = false;
@@ -348,12 +349,9 @@ impl GameState {
                             }
                             hit = true;
                         }
-                    } else {
-                        // No shield: check collision with player
-                        if proj.current_pos.distance_to(player_pos) < self.player.radius + 5.0 {
-                            player_damage += proj.damage;
-                            hit = true;
-                        }
+                    } else if proj.current_pos.distance_to(player_pos) < self.player.radius + 5.0 {
+                        player_damage += damage;
+                        hit = true;
                     }
                 }
             }
@@ -365,34 +363,58 @@ impl GameState {
             proj.lifetime -= dt;
         }
 
-        // 7. Apply damage
+        // 7. Apply actions from hits
         self.player.hp -= player_damage;
 
-        for (idx, damage, element, is_aoe, aoe_radius, pos, burn_dps, burn_duration) in enemy_hits {
-            if idx < self.enemies.len() {
-                self.enemies[idx].take_damage(damage, element);
+        for (idx, actions, element, pos) in enemy_hits {
+            if idx >= self.enemies.len() {
+                continue;
+            }
 
-                if burn_dps > 0.0 && burn_duration > 0.0 {
-                    self.enemies[idx].apply_burn(burn_dps, burn_duration);
-                }
+            for action in &actions {
+                match action {
+                    ResolvedAction::ApplyDamage { target, damage } => {
+                        let dmg = match damage {
+                            ResolvedDamage::Fixed(d) => *d,
+                            ResolvedDamage::PercentHp(pct) => {
+                                self.enemies[idx].max_hp * pct / 100.0
+                            }
+                        };
 
-                if is_aoe && aoe_radius > 0.0 {
-                    let color = element.color();
-                    self.aoe_splashes.push(AoeSplash {
-                        position: pos.clone(),
-                        radius: aoe_radius,
-                        color: (color.h, color.s, color.l),
-                        lifetime: 0.4,
-                        max_lifetime: 0.4,
-                    });
-                    for enemy in &mut self.enemies {
-                        if enemy.position.distance_to(&pos) < aoe_radius {
-                            enemy.take_damage(damage * 0.5, element);
-                            if burn_dps > 0.0 && burn_duration > 0.0 {
-                                enemy.apply_burn(burn_dps, burn_duration);
+                        match target {
+                            EffectTarget::Single => {
+                                self.enemies[idx].take_damage(dmg, element);
+                            }
+                            EffectTarget::Area(radius) => {
+                                self.enemies[idx].take_damage(dmg, element);
+                                let color = element.color();
+                                self.aoe_splashes.push(AoeSplash {
+                                    position: pos.clone(),
+                                    radius: *radius,
+                                    color: (color.h, color.s, color.l),
+                                    lifetime: 0.4,
+                                    max_lifetime: 0.4,
+                                });
+                                for enemy in &mut self.enemies {
+                                    if enemy.position.distance_to(&pos) < *radius {
+                                        enemy.take_damage(dmg * 0.5, element);
+                                    }
+                                }
                             }
                         }
                     }
+                    ResolvedAction::ApplyEffect { target, effect } => match target {
+                        EffectTarget::Single => {
+                            apply_effect_to_enemy(&mut self.enemies[idx], effect);
+                        }
+                        EffectTarget::Area(radius) => {
+                            for enemy in &mut self.enemies {
+                                if enemy.position.distance_to(&pos) < *radius {
+                                    apply_effect_to_enemy(enemy, effect);
+                                }
+                            }
+                        }
+                    },
                 }
             }
         }
@@ -459,14 +481,14 @@ impl GameState {
     }
 
     pub fn try_place_tower(&mut self, element: TowerElement, x: f32, y: f32) {
-        use crate::data::tower_presets::get_preset;
+        use crate::data::tower_defs::get_def;
 
         if self.towers.len() >= self.max_towers as usize {
             return;
         }
 
-        let preset = get_preset(element);
-        if self.economy.gold < preset.base_cost {
+        let def = get_def(element);
+        if self.economy.gold < def.base_cost {
             return;
         }
 
@@ -484,9 +506,9 @@ impl GameState {
             return;
         }
 
-        self.economy.gold -= preset.base_cost;
+        self.economy.gold -= def.base_cost;
         let id = self.towers.len();
-        self.towers.push(Tower::from_preset(id, element, pos));
+        self.towers.push(Tower::from_def(id, element, pos));
     }
 
     pub fn try_select_at(&mut self, x: f32, y: f32) {
@@ -517,31 +539,19 @@ impl GameState {
         }
     }
 
-    pub fn upgrade_tower(
-        &mut self,
-        tower_idx: usize,
-        upgrade_type: tower::TowerUpgradeType,
-    ) -> bool {
+    pub fn upgrade_tower(&mut self, tower_idx: usize, upgrade_id: tower::TowerUpgradeId) -> bool {
         if tower_idx >= self.towers.len() {
             return false;
         }
-        let cost = {
-            let tower = &self.towers[tower_idx];
-            let upgrade = tower
-                .upgrades
-                .iter()
-                .find(|u| u.upgrade_type == upgrade_type);
-            match upgrade {
-                Some(u) if u.level < u.max_level => u.cost(),
-                _ => return false,
-            }
+        let cost = match self.towers[tower_idx].upgrade_cost(upgrade_id) {
+            Some(c) => c,
+            None => return false,
         };
         if self.economy.gold < cost {
             return false;
         }
         self.economy.gold -= cost;
-        self.towers[tower_idx].apply_upgrade(upgrade_type);
-        true
+        self.towers[tower_idx].apply_upgrade(upgrade_id)
     }
 
     pub fn sell_tower(&mut self, tower_idx: usize) {
@@ -552,6 +562,20 @@ impl GameState {
         self.economy.gold += value;
         self.towers.remove(tower_idx);
         self.selected_tower = None;
+    }
+}
+
+fn apply_effect_to_enemy(enemy: &mut Enemy, effect: &ResolvedEffect) {
+    match effect {
+        ResolvedEffect::Burn { dps, duration } => {
+            enemy.apply_burn(*dps, *duration);
+        }
+        ResolvedEffect::Slow { ratio, duration } => {
+            enemy.apply_slow(*ratio, *duration);
+        }
+        ResolvedEffect::Stun { duration } => {
+            enemy.apply_stun(*duration);
+        }
     }
 }
 

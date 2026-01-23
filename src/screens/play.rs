@@ -5,7 +5,7 @@ use gpui_component::v_flex;
 use std::time::{Duration, Instant};
 
 use crate::data::SaveData;
-use crate::data::tower_presets::get_preset;
+use crate::data::tower_defs::get_def;
 use crate::game::Point2D;
 use crate::game::{GamePhase, GameState};
 use crate::render::{self, PlacementPreview};
@@ -76,12 +76,12 @@ impl PlayScreen {
         let center_y = viewport.1 / 2.0;
         let game_x = f32::from(cursor.x) - center_x;
         let game_y = f32::from(cursor.y) - center_y;
-        let preset = get_preset(element);
+        let def = get_def(element);
 
         Some(PlacementPreview {
             element,
             game_pos: Point2D::new(game_x, game_y),
-            range: preset.base_range,
+            range: def.range.base,
         })
     }
 }

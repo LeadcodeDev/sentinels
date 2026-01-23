@@ -42,7 +42,7 @@ pub fn render_game(
                     window,
                     center,
                     &tower.position,
-                    tower.attack_range,
+                    tower.attack_range(),
                     Hsla {
                         h: 0.0,
                         s: 0.0,

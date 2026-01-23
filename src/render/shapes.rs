@@ -256,7 +256,7 @@ pub fn draw_tower(window: &mut Window, center: Point<Pixels>, tower: &Tower) {
     );
 
     // Level dots below
-    let dot_count = tower.level.min(5);
+    let dot_count = tower.level().min(5);
     for i in 0..dot_count {
         let offset_x = (i as f32 - (dot_count as f32 - 1.0) / 2.0) * 6.0;
         draw_circle(

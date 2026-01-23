@@ -1,5 +1,5 @@
 pub mod enemy_types;
-pub mod tower_presets;
+pub mod tower_defs;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

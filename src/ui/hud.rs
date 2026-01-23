@@ -5,8 +5,9 @@ use gpui_component::divider::Divider;
 use gpui_component::progress::Progress;
 use gpui_component::{Disableable, Sizable, Size, h_flex, v_flex};
 
-use crate::data::tower_presets::get_preset;
+use crate::data::tower_defs::get_def;
 use crate::game::elemental::TowerElement;
+use crate::game::tower::TowerUpgradeId;
 use crate::game::{GamePhase, GameState};
 use crate::screens::play::PlayScreen;
 
@@ -210,48 +211,45 @@ fn selected_tower_section(
     let tower = game.towers.get(tower_idx)?;
 
     let color = tower.element.color();
-    let element_name = tower.element.name();
-    let damage = tower.attack_damage;
-    let range = tower.attack_range;
-    let speed = tower.attack_speed;
-    let is_aoe = tower.is_aoe;
-    let aoe_radius = tower.aoe_radius;
+    let name = tower.name;
+    let range = tower.attack_range();
+    let speed = tower.attack_speed_value();
     let sell_value = tower.sell_value();
     let gold = game.economy.gold;
 
-    let upgrades: Vec<_> = tower
-        .upgrades
-        .iter()
-        .map(|u| {
-            let can_afford = u.level < u.max_level && gold >= u.cost();
+    // Collect upgrades
+    let upgrades: Vec<(TowerUpgradeId, &'static str, u32, u32, u32, f32, bool)> = tower
+        .get_upgrades()
+        .into_iter()
+        .map(|(id, name, prop)| {
+            let can_afford = prop.can_upgrade() && gold >= prop.cost();
             (
-                u.upgrade_type,
-                u.level,
-                u.max_level,
-                u.cost(),
-                u.bonus_per_level(),
+                id,
+                name,
+                prop.current_level,
+                prop.max_level,
+                prop.cost(),
+                prop.bonus_per_level,
                 can_afford,
             )
         })
         .collect();
 
     let mut upgrade_elements: Vec<AnyElement> = Vec::new();
-    for &(upgrade_type, ulevel, max_level, cost, bonus, can_afford) in &upgrades {
-        if bonus == 0.0 {
-            continue;
-        }
-        let is_maxed = ulevel >= max_level;
+    for (upgrade_id, uname, ulevel, max_level, cost, bonus, can_afford) in &upgrades {
+        let is_maxed = *ulevel >= *max_level;
         let bonus_str = if bonus.fract() == 0.0 {
             format!("{:.0}", bonus)
         } else {
             format!("{:.1}", bonus)
         };
         let label = if is_maxed {
-            format!("{} MAX", upgrade_type.name())
+            format!("{} MAX", uname)
         } else {
-            format!("{} +{} ({}g)", upgrade_type.name(), bonus_str, cost)
+            format!("{} +{} ({}g)", uname, bonus_str, cost)
         };
-        let id = SharedString::from(format!("sidebar_upgrade_{:?}", upgrade_type));
+        let id_str = SharedString::from(format!("sidebar_upgrade_{:?}", upgrade_id));
+        let uid = *upgrade_id;
 
         let row = h_flex()
             .items_center()
@@ -263,14 +261,14 @@ fn selected_tower_section(
                     .child(format!("{}/{}", ulevel, max_level)),
             )
             .child(
-                Button::new(id)
+                Button::new(id_str)
                     .label(label)
                     .compact()
                     .with_size(Size::Small)
                     .disabled(is_maxed || !can_afford)
                     .on_click(cx.listener(move |screen, _, _window, _cx| {
                         if let Some(idx) = screen.game_state.selected_tower {
-                            screen.game_state.upgrade_tower(idx, upgrade_type);
+                            screen.game_state.upgrade_tower(idx, uid);
                         }
                     })),
             );
@@ -304,19 +302,15 @@ fn selected_tower_section(
                 a: 1.0,
             }))
             // Header
-            .child(div().text_sm().text_color(color).child(element_name))
+            .child(div().text_sm().text_color(color).child(name))
             // Stats
             .child(
                 v_flex()
                     .gap_1()
                     .text_xs()
                     .text_color(rgb(0xcccccc))
-                    .child(format!("Degats: {:.1}", damage))
                     .child(format!("Portee: {:.0}", range))
-                    .child(format!("Vitesse: {:.2}/s", speed))
-                    .when(is_aoe, |this| {
-                        this.child(format!("Zone: {:.0}", aoe_radius))
-                    }),
+                    .child(format!("Vitesse: {:.2}/s", speed)),
             )
             // Upgrades header
             .child(
@@ -337,11 +331,11 @@ fn tower_icon(
     slots_full: bool,
     cx: &mut Context<PlayScreen>,
 ) -> impl IntoElement + use<> {
-    let preset = get_preset(element);
-    let cost = preset.base_cost;
+    let def = get_def(element);
+    let cost = def.base_cost;
     let can_afford = gold >= cost && !slots_full;
     let color = element.color();
-    let name = preset.name;
+    let name = def.name;
 
     let bg_color = Hsla {
         h: color.h,
