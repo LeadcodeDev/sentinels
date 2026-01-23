@@ -385,6 +385,12 @@ impl GameState {
                             EffectTarget::Single => {
                                 self.enemies[idx].take_damage(dmg, element);
                             }
+                            EffectTarget::Multi(n) => {
+                                let targets = find_n_nearest(&pos, *n, &self.enemies);
+                                for t_idx in targets {
+                                    self.enemies[t_idx].take_damage(dmg, element);
+                                }
+                            }
                             EffectTarget::Area(radius) => {
                                 self.enemies[idx].take_damage(dmg, element);
                                 let color = element.color();
@@ -406,6 +412,12 @@ impl GameState {
                     ResolvedAction::ApplyEffect { target, effect } => match target {
                         EffectTarget::Single => {
                             apply_effect_to_enemy(&mut self.enemies[idx], effect);
+                        }
+                        EffectTarget::Multi(n) => {
+                            let targets = find_n_nearest(&pos, *n, &self.enemies);
+                            for t_idx in targets {
+                                apply_effect_to_enemy(&mut self.enemies[t_idx], effect);
+                            }
                         }
                         EffectTarget::Area(radius) => {
                             for enemy in &mut self.enemies {
@@ -577,6 +589,20 @@ fn apply_effect_to_enemy(enemy: &mut Enemy, effect: &ResolvedEffect) {
             enemy.apply_stun(*duration);
         }
     }
+}
+
+fn find_n_nearest(pos: &Point2D, n: u32, enemies: &[Enemy]) -> Vec<usize> {
+    let mut indexed: Vec<(usize, f32)> = enemies
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (i, pos.distance_to(&e.position)))
+        .collect();
+    indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed
+        .into_iter()
+        .take(n as usize)
+        .map(|(i, _)| i)
+        .collect()
 }
 
 fn find_nearest_in_range(pos: &Point2D, range: f32, enemies: &[Enemy]) -> Option<usize> {

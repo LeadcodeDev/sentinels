@@ -3,6 +3,7 @@ use crate::game::elemental::TowerElement;
 #[derive(Clone)]
 pub enum EffectTarget {
     Single,
+    Multi(u32),
     Area(f32),
 }
 
@@ -38,6 +39,7 @@ pub enum ActionUpgradeTarget {
     EffectDps,
     EffectDuration,
     EffectRatio,
+    MaxTargets,
 }
 
 #[derive(Clone)]
@@ -146,12 +148,20 @@ impl TowerActionDef {
                         ResolvedDamage::PercentHp(val)
                     }
                 };
-                // Apply AoeRadius upgrades
+                // Apply AoeRadius and MaxTargets upgrades
                 for u in &self.upgrades {
-                    if u.applies_to == ActionUpgradeTarget::AoeRadius {
-                        if let EffectTarget::Area(ref mut r) = resolved_target {
-                            *r += u.prop.bonus_per_level * u.prop.current_level as f32;
+                    match u.applies_to {
+                        ActionUpgradeTarget::AoeRadius => {
+                            if let EffectTarget::Area(ref mut r) = resolved_target {
+                                *r += u.prop.bonus_per_level * u.prop.current_level as f32;
+                            }
                         }
+                        ActionUpgradeTarget::MaxTargets => {
+                            if let EffectTarget::Multi(ref mut n) = resolved_target {
+                                *n += (u.prop.bonus_per_level * u.prop.current_level as f32) as u32;
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 ResolvedAction::ApplyDamage {
@@ -210,12 +220,20 @@ impl TowerActionDef {
                         ResolvedEffect::Stun { duration: dur }
                     }
                 };
-                // Apply AoeRadius upgrades to effect target too
+                // Apply AoeRadius and MaxTargets upgrades to effect target too
                 for u in &self.upgrades {
-                    if u.applies_to == ActionUpgradeTarget::AoeRadius {
-                        if let EffectTarget::Area(ref mut r) = resolved_target {
-                            *r += u.prop.bonus_per_level * u.prop.current_level as f32;
+                    match u.applies_to {
+                        ActionUpgradeTarget::AoeRadius => {
+                            if let EffectTarget::Area(ref mut r) = resolved_target {
+                                *r += u.prop.bonus_per_level * u.prop.current_level as f32;
+                            }
                         }
+                        ActionUpgradeTarget::MaxTargets => {
+                            if let EffectTarget::Multi(ref mut n) = resolved_target {
+                                *n += (u.prop.bonus_per_level * u.prop.current_level as f32) as u32;
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 ResolvedAction::ApplyEffect {
@@ -413,10 +431,13 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
             .attack_speed(1.5, 0.2, 5)
             .action_with_upgrades(
                 TowerAction::ApplyDamage {
-                    target: EffectTarget::Single,
+                    target: EffectTarget::Multi(3),
                     damage: DamageType::Fixed(7.0),
                 },
-                vec![("Degats", ActionUpgradeTarget::Damage, 3.0, 5)],
+                vec![
+                    ("Degats", ActionUpgradeTarget::Damage, 3.0, 5),
+                    ("Cibles", ActionUpgradeTarget::MaxTargets, 1.0, 3),
+                ],
             )
             .build(),
         TowerBuilder::new("Tour Seisme", TowerElement::Earth)
