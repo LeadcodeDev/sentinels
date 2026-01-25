@@ -142,6 +142,7 @@ pub struct GameState {
     pub selected_tower: Option<usize>,
     pub elapsed: f32,
     pub save_data: SaveData,
+    pub speed_multiplier: f32,
 }
 
 impl GameState {
@@ -172,6 +173,7 @@ impl GameState {
             selected_tower: None,
             elapsed: 0.0,
             save_data: save_data.clone(),
+            speed_multiplier: 1.0,
         }
     }
 
@@ -671,6 +673,14 @@ impl GameState {
             self.phase = GamePhase::Active;
             self.economy.wave_number = self.wave_manager.current_wave;
         }
+    }
+
+    pub fn cycle_speed(&mut self) {
+        self.speed_multiplier = match self.speed_multiplier as u32 {
+            1 => 2.0,
+            2 => 3.0,
+            _ => 1.0,
+        };
     }
 
     pub fn upgrade_tower(&mut self, tower_idx: usize, upgrade_id: tower::TowerUpgradeId) -> bool {
