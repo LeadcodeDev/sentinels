@@ -90,10 +90,19 @@ impl PlayScreen {
         let kind = self.game_state.placement_mode?;
         let def = get_def(kind);
 
+        // Get range from first active skill if available, otherwise no preview range
+        let range = def
+            .skills
+            .iter()
+            .find(|s| s.skill_type == crate::data::tower_defs::SkillType::Active)
+            .and_then(|s| s.range.as_ref())
+            .map(|p| p.value())
+            .unwrap_or(0.0);
+
         Some(PlacementPreview {
             element: def.element,
             game_pos: Point2D::new(game_x, game_y),
-            range: def.range.base,
+            range,
         })
     }
 }

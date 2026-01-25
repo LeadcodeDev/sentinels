@@ -6,7 +6,8 @@ use gpui_component::divider::Divider;
 use gpui_component::progress::Progress;
 use gpui_component::{Disableable, Sizable, Size, h_flex, v_flex};
 
-use crate::data::tower_defs::{TowerKind, get_def};
+use crate::data::tower_defs::{SkillType, TowerKind, get_def};
+use crate::game::tower::SkillState;
 use crate::game::{GamePhase, GameState};
 use crate::screens::play::PlayScreen;
 
@@ -204,12 +205,131 @@ fn selected_tower_section(
     let gold = game.economy.gold;
     let has_notification_settings = tower.notification_settings.is_some();
 
+    // Build skill icons row
+    let def = get_def(tower.kind);
+    let skill_icons: Vec<AnyElement> = (0..3)
+        .map(|skill_idx| {
+            let skill_def = &def.skills[skill_idx];
+            let skill_state = &tower.skills[skill_idx];
+            let skill_icon = skill_def.icon;
+            let skill_name = skill_def.name;
+            let skill_type = skill_def.skill_type;
+            let purchase_cost = skill_def.purchase_cost;
+
+            // Determine button state and color
+            let (bg_alpha, border_alpha, is_disabled, tooltip_text) = match skill_state {
+                SkillState::Locked => {
+                    let can_afford = gold >= purchase_cost;
+                    (
+                        if can_afford { 0.1 } else { 0.05 },
+                        if can_afford { 0.4 } else { 0.2 },
+                        !can_afford,
+                        format!("{} - {}g", skill_name, purchase_cost),
+                    )
+                }
+                SkillState::Purchased(_) => (
+                    0.2,
+                    0.6,
+                    false,
+                    format!("{} (cliquer pour activer)", skill_name),
+                ),
+                SkillState::Active(_) => (0.4, 1.0, false, format!("{} (active)", skill_name)),
+            };
+
+            // Color based on skill type
+            let base_color = match skill_type {
+                SkillType::Active => rgb(0x44aaff),  // Blue for active skills
+                SkillType::Passive => rgb(0xffaa44), // Orange for passive skills
+            };
+            let base_hsla: Hsla = base_color.into();
+
+            let bg_color = Hsla {
+                a: bg_alpha,
+                ..base_hsla
+            };
+            let border_color = Hsla {
+                a: border_alpha,
+                ..base_hsla
+            };
+            let hover_color = Hsla {
+                a: bg_alpha + 0.15,
+                ..base_hsla
+            };
+            let fg_color = Hsla {
+                a: if matches!(skill_state, SkillState::Locked) && gold < purchase_cost {
+                    0.4
+                } else {
+                    1.0
+                },
+                ..base_hsla
+            };
+
+            // Highlight active skill with a ring
+            let is_active = matches!(skill_state, SkillState::Active(_));
+
+            Button::new(SharedString::from(format!(
+                "skill_icon_{}_{}",
+                tower_idx, skill_idx
+            )))
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .color(bg_color)
+                    .foreground(fg_color)
+                    .border(border_color)
+                    .hover(hover_color)
+                    .active(hover_color),
+            )
+            .label(skill_icon)
+            .disabled(is_disabled)
+            .tooltip(SharedString::from(tooltip_text))
+            .when(is_active, |btn| {
+                btn.custom(
+                    ButtonCustomVariant::new(cx)
+                        .color(Hsla {
+                            a: 0.5,
+                            ..base_hsla
+                        })
+                        .foreground(fg_color)
+                        .border(Hsla {
+                            a: 1.0,
+                            ..base_hsla
+                        })
+                        .hover(Hsla {
+                            a: 0.6,
+                            ..base_hsla
+                        })
+                        .active(Hsla {
+                            a: 0.6,
+                            ..base_hsla
+                        }),
+                )
+            })
+            .on_click(cx.listener(move |screen, _, _window, _cx| {
+                if let Some(idx) = screen.game_state.selected_tower {
+                    let tower = &screen.game_state.towers[idx];
+                    match &tower.skills[skill_idx] {
+                        SkillState::Locked => {
+                            screen.game_state.purchase_skill(idx, skill_idx);
+                        }
+                        SkillState::Purchased(_) => {
+                            screen.game_state.activate_skill(idx, skill_idx);
+                        }
+                        SkillState::Active(_) => {
+                            // Already active, do nothing
+                        }
+                    }
+                }
+            }))
+            .into_any_element()
+        })
+        .collect();
+
     // Build stat rows: each stat shows its current value, and if upgradeable, a button with bonus
     // Skip stats for towers with notification settings (Alarme) as they don't attack
     let upgrades = if has_notification_settings {
         Vec::new()
     } else {
-        tower.get_upgrades()
+        tower.get_active_skill_upgrades()
     };
 
     let mut stat_elements: Vec<AnyElement> = Vec::new();
@@ -269,9 +389,9 @@ fn selected_tower_section(
         stat_elements.push(row.into_any_element());
     }
 
-    // Target priority button (only for towers that attack)
+    // Target priority button (only if active skill allows it)
     let target_priority = tower.target_priority;
-    let priority_btn = if !has_notification_settings && tower.attack_speed.max_level > 0 {
+    let priority_btn = if tower.can_change_target() {
         Some(
             Button::new("sidebar_target_priority")
                 .label(format!("Cible: {}", target_priority.display_name()))
@@ -382,6 +502,12 @@ fn selected_tower_section(
             )
     });
 
+    // Get active skill name for display
+    let active_skill_name = tower
+        .active_skill_index
+        .map(|idx| def.skills[idx].name)
+        .unwrap_or("Aucune");
+
     Some(
         div()
             .id("selected_tower_panel")
@@ -399,7 +525,28 @@ fn selected_tower_section(
             }))
             // Header
             .child(div().text_sm().text_color(color).child(name))
-            // Stats with inline upgrades
+            // Skill icons row
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0xaaaaaa))
+                            .child("Competences"),
+                    )
+                    .child(h_flex().gap_1().children(skill_icons)),
+            )
+            // Active skill name
+            .when(!has_notification_settings, |this| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x44aaff))
+                        .child(format!("Active: {}", active_skill_name)),
+                )
+            })
+            // Stats with inline upgrades (only for active skill)
             .children(stat_elements)
             // Target priority button (if tower attacks)
             .when_some(priority_btn, |this, btn| this.child(btn))

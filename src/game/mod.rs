@@ -330,7 +330,7 @@ impl GameState {
                     let tower = &self.towers[i];
                     let resolved = tower.resolved_actions();
                     let element = tower.element;
-                    let proj_size = get_def(tower.kind).projectile_size;
+                    let proj_size = tower.projectile_size();
                     let speed_val = tower.attack_speed_value();
                     self.towers[i].attack_cooldown = 1.0 / speed_val;
 
@@ -778,7 +778,7 @@ impl GameState {
         };
     }
 
-    pub fn upgrade_tower(&mut self, tower_idx: usize, upgrade_id: tower::TowerUpgradeId) -> bool {
+    pub fn upgrade_tower(&mut self, tower_idx: usize, upgrade_id: tower::SkillUpgradeId) -> bool {
         if tower_idx >= self.towers.len() {
             return false;
         }
@@ -790,7 +790,21 @@ impl GameState {
             return false;
         }
         self.economy.gold -= cost;
-        self.towers[tower_idx].apply_upgrade(upgrade_id)
+        self.towers[tower_idx].apply_skill_upgrade(upgrade_id)
+    }
+
+    pub fn purchase_skill(&mut self, tower_idx: usize, skill_idx: usize) -> bool {
+        if tower_idx >= self.towers.len() {
+            return false;
+        }
+        self.towers[tower_idx].purchase_skill(skill_idx, &mut self.economy.gold)
+    }
+
+    pub fn activate_skill(&mut self, tower_idx: usize, skill_idx: usize) -> bool {
+        if tower_idx >= self.towers.len() {
+            return false;
+        }
+        self.towers[tower_idx].activate_skill(skill_idx)
     }
 
     pub fn sell_tower(&mut self, tower_idx: usize) {
