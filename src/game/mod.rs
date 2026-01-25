@@ -11,6 +11,7 @@ use crate::data::tower_defs::{
 };
 use elemental::TowerElement;
 use enemy::Enemy;
+use notify_rust::Notification;
 use player::Player;
 use tower::Tower;
 use wave::WaveManager;
@@ -430,6 +431,11 @@ impl GameState {
                                 self.shield.hp = 0.0;
                                 self.shield.active = false;
                                 self.shield.regen_timer = self.shield.regen_delay;
+                                // OS notification: shield broken
+                                let _ = Notification::new()
+                                    .summary("Sentinels")
+                                    .body("Bouclier brisé !")
+                                    .show();
                             }
                             hit = true;
                         }
