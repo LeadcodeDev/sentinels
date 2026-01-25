@@ -2,6 +2,12 @@ use super::Point2D;
 use super::elemental::TowerElement;
 use crate::data::tower_defs::{ResolvedAction, TowerKind, UpgradeableProp, get_def};
 
+#[derive(Clone, Default)]
+pub struct NotificationSettings {
+    pub shield_broken: bool,
+    pub shield_low: bool,
+}
+
 #[derive(Clone)]
 pub struct Tower {
     pub id: usize,
@@ -16,6 +22,7 @@ pub struct Tower {
     pub base_cost: u32,
     pub radius: f32,
     pub gold_accumulator: f32,
+    pub notification_settings: Option<NotificationSettings>,
 }
 
 #[derive(Clone)]
@@ -49,6 +56,16 @@ impl Tower {
             })
             .collect();
 
+        // Alarme tower has notification settings (disabled by default)
+        let notification_settings = if kind == TowerKind::Alarme {
+            Some(NotificationSettings {
+                shield_broken: false,
+                shield_low: false,
+            })
+        } else {
+            None
+        };
+
         Self {
             id,
             position,
@@ -62,6 +79,7 @@ impl Tower {
             base_cost: def.base_cost,
             radius: 14.0,
             gold_accumulator: 0.0,
+            notification_settings,
         }
     }
 

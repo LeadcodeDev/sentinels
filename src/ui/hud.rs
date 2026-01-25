@@ -1,6 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants};
+use gpui_component::checkbox::Checkbox;
 use gpui_component::divider::Divider;
 use gpui_component::progress::Progress;
 use gpui_component::{Disableable, Sizable, Size, h_flex, v_flex};
@@ -201,9 +202,15 @@ fn selected_tower_section(
     let name = tower.name;
     let sell_value = tower.sell_value();
     let gold = game.economy.gold;
+    let has_notification_settings = tower.notification_settings.is_some();
 
     // Build stat rows: each stat shows its current value, and if upgradeable, a button with bonus
-    let upgrades = tower.get_upgrades();
+    // Skip stats for towers with notification settings (Alarme) as they don't attack
+    let upgrades = if has_notification_settings {
+        Vec::new()
+    } else {
+        tower.get_upgrades()
+    };
 
     let mut stat_elements: Vec<AnyElement> = Vec::new();
     for (upgrade_id, uname, prop) in &upgrades {
@@ -286,6 +293,75 @@ fn selected_tower_section(
             }
         }));
 
+    // Notification settings section (for Alarme tower)
+    let notification_section = tower.notification_settings.as_ref().map(|settings| {
+        let shield_broken = settings.shield_broken;
+        let shield_low = settings.shield_low;
+
+        v_flex()
+            .gap_2()
+            .child(Divider::horizontal().color(Hsla {
+                h: 0.0,
+                s: 0.0,
+                l: 0.25,
+                a: 1.0,
+            }))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0xaaaaaa))
+                    .child("Notifications"),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Checkbox::new("notif_shield_broken")
+                            .checked(shield_broken)
+                            .on_click(cx.listener(move |screen, _, _window, _cx| {
+                                if let Some(idx) = screen.game_state.selected_tower {
+                                    if let Some(tower) = screen.game_state.towers.get_mut(idx) {
+                                        if let Some(settings) = &mut tower.notification_settings {
+                                            settings.shield_broken = !settings.shield_broken;
+                                        }
+                                    }
+                                }
+                            })),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0xffffff))
+                            .child("Bouclier brise"),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Checkbox::new("notif_shield_low")
+                            .checked(shield_low)
+                            .on_click(cx.listener(move |screen, _, _window, _cx| {
+                                if let Some(idx) = screen.game_state.selected_tower {
+                                    if let Some(tower) = screen.game_state.towers.get_mut(idx) {
+                                        if let Some(settings) = &mut tower.notification_settings {
+                                            settings.shield_low = !settings.shield_low;
+                                        }
+                                    }
+                                }
+                            })),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0xffffff))
+                            .child("Bouclier <= 25%"),
+                    ),
+            )
+    });
+
     Some(
         div()
             .id("selected_tower_panel")
@@ -305,6 +381,8 @@ fn selected_tower_section(
             .child(div().text_sm().text_color(color).child(name))
             // Stats with inline upgrades
             .children(stat_elements)
+            // Notification settings (if available)
+            .when_some(notification_section, |this, section| this.child(section))
             // Move
             .child(move_btn)
             // Sell

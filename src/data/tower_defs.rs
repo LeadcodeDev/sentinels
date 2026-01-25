@@ -11,6 +11,7 @@ pub enum TowerKind {
     Seisme,
     Sniper,
     Forge,
+    Alarme,
 }
 
 impl TowerKind {
@@ -23,6 +24,7 @@ impl TowerKind {
             TowerKind::Seisme,
             TowerKind::Sniper,
             TowerKind::Forge,
+            TowerKind::Alarme,
         ]
     }
 }
@@ -546,6 +548,10 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                 },
                 vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 1.0, 5)],
             )
+            .build(),
+        TowerBuilder::new(TowerKind::Alarme, "Alarme", TowerElement::Electric)
+            .description("Notifications systeme configurables")
+            .cost(75)
             .build(),
     ]
 }

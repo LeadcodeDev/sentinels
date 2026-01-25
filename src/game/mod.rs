@@ -11,10 +11,18 @@ use crate::data::tower_defs::{
 };
 use elemental::TowerElement;
 use enemy::Enemy;
-use notify_rust::Notification;
 use player::Player;
+use std::process::Command;
 use tower::Tower;
 use wave::WaveManager;
+
+fn send_notification(title: &str, message: &str) {
+    let script = format!(
+        "display notification \"{}\" with title \"{}\"",
+        message, title
+    );
+    let _ = Command::new("osascript").arg("-e").arg(script).spawn();
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum GamePhase {
@@ -79,6 +87,7 @@ pub struct Shield {
     pub radius: f32,
     pub regen_timer: f32,
     pub regen_delay: f32,
+    pub low_hp_notified: bool,
 }
 
 impl Shield {
@@ -91,6 +100,7 @@ impl Shield {
                 radius: 0.0,
                 regen_timer: 0.0,
                 regen_delay: 15.0,
+                low_hp_notified: false,
             };
         }
         let max_hp = 50.0 * level as f32;
@@ -101,6 +111,7 @@ impl Shield {
             radius: 80.0,
             regen_timer: 0.0,
             regen_delay: 15.0,
+            low_hp_notified: false,
         }
     }
 
@@ -221,6 +232,7 @@ impl GameState {
             if self.shield.regen_timer <= 0.0 {
                 self.shield.active = true;
                 self.shield.hp = self.shield.max_hp;
+                self.shield.low_hp_notified = false;
             }
         }
 
@@ -427,15 +439,39 @@ impl GameState {
                         let dist_to_center = proj.current_pos.distance_to(player_pos);
                         if dist_to_center < self.shield.radius + 5.0 {
                             self.shield.hp -= damage;
+
+                            // Check for low HP notification (<=25%)
+                            if !self.shield.low_hp_notified
+                                && self.shield.hp > 0.0
+                                && self.shield.hp <= self.shield.max_hp * 0.25
+                            {
+                                for tower in &self.towers {
+                                    if let Some(settings) = &tower.notification_settings {
+                                        if settings.shield_low {
+                                            send_notification(
+                                                "Sentinels",
+                                                "Bouclier faible (<=25%) !",
+                                            );
+                                            self.shield.low_hp_notified = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
                             if self.shield.hp <= 0.0 {
                                 self.shield.hp = 0.0;
                                 self.shield.active = false;
                                 self.shield.regen_timer = self.shield.regen_delay;
-                                // OS notification: shield broken
-                                let _ = Notification::new()
-                                    .summary("Sentinels")
-                                    .body("Bouclier brisé !")
-                                    .show();
+                                // Check if any tower has shield_broken notification enabled
+                                for tower in &self.towers {
+                                    if let Some(settings) = &tower.notification_settings {
+                                        if settings.shield_broken {
+                                            send_notification("Sentinels", "Bouclier brise !");
+                                            break;
+                                        }
+                                    }
+                                }
                             }
                             hit = true;
                         }
