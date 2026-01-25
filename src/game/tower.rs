@@ -401,6 +401,10 @@ impl Tower {
                     // Rouge sombre pour lifesteal
                     zones.push((radius, (0.0, 0.7, 0.3)));
                 }
+                ResolvedAction::PassiveBurnAura { radius, .. } => {
+                    // Orange/rouge pour le feu
+                    zones.push((radius, (0.05, 0.9, 0.5)));
+                }
                 _ => {}
             }
         }
@@ -422,6 +426,10 @@ impl Tower {
                 }
                 ResolvedAction::LifeSteal { radius, .. } => {
                     zones.push((radius, (0.0, 0.7, 0.3)));
+                }
+                ResolvedAction::PassiveBurnAura { radius, .. } => {
+                    // Orange/rouge pour le feu
+                    zones.push((radius, (0.05, 0.9, 0.5)));
                 }
                 _ => {}
             }

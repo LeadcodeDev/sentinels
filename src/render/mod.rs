@@ -26,6 +26,7 @@ pub fn render_game(
     let aoe_splashes = game.aoe_splashes.clone();
     let gold_pulses = game.gold_pulses.clone();
     let impact_auras = game.impact_auras.clone();
+    let laser_beams = game.laser_beams.clone();
     let elapsed = game.elapsed;
     let selected_tower = game.selected_tower;
 
@@ -102,6 +103,11 @@ pub fn render_game(
             // Draw impact auras (temporary zones at projectile impact locations)
             for aura in &impact_auras {
                 draw_impact_aura(window, center, aura, elapsed);
+            }
+
+            // Draw laser beams (comet strikes)
+            for beam in &laser_beams {
+                draw_laser_beam(window, center, beam);
             }
 
             // Draw player

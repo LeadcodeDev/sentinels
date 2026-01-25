@@ -129,6 +129,17 @@ pub struct AoeSplash {
     pub max_lifetime: f32,
 }
 
+/// Effet visuel de laser/comète
+#[derive(Clone)]
+pub struct LaserBeam {
+    pub start: Point2D,
+    pub end: Point2D,
+    pub color: (f32, f32, f32), // h, s, l
+    pub lifetime: f32,
+    pub max_lifetime: f32,
+    pub width: f32, // Largeur du faisceau (1.0 = fin, 2.0+ = épais)
+}
+
 /// Aura d'impact temporaire - applique un effet élémentaire dans une zone
 #[derive(Clone)]
 pub struct ImpactAura {
@@ -185,6 +196,7 @@ pub struct GameState {
     pub aoe_splashes: Vec<AoeSplash>,
     pub gold_pulses: Vec<GoldPulse>,
     pub impact_auras: Vec<ImpactAura>,
+    pub laser_beams: Vec<LaserBeam>,
     pub wave_manager: WaveManager,
     pub economy: Economy,
     pub phase: GamePhase,
@@ -213,6 +225,7 @@ impl GameState {
             aoe_splashes: Vec::new(),
             gold_pulses: Vec::new(),
             impact_auras: Vec::new(),
+            laser_beams: Vec::new(),
             wave_manager: WaveManager::new(),
             economy: Economy {
                 gold: 500 + bonus_gold,
@@ -382,7 +395,9 @@ impl GameState {
                             | ResolvedAction::ConditionalDamage { .. }
                             | ResolvedAction::RandomBombard { .. }
                             | ResolvedAction::ColdAura { .. }
-                            | ResolvedAction::Glaciation { .. } => 0,
+                            | ResolvedAction::Glaciation { .. }
+                            | ResolvedAction::PassiveBurnAura { .. }
+                            | ResolvedAction::CometStrike { .. } => 0,
                             // Impact auras need a projectile to be fired
                             ResolvedAction::ImpactAura { .. }
                             | ResolvedAction::ImpactColdAura { .. }
@@ -423,7 +438,9 @@ impl GameState {
 
         // 6. Projectile movement + collision
         let mut player_damage: f32 = 0.0;
-        let mut enemy_hits: Vec<(usize, Vec<ResolvedAction>, TowerElement, Point2D)> = Vec::new();
+        // (enemy_idx, actions, element, impact_pos, origin_pos)
+        let mut enemy_hits: Vec<(usize, Vec<ResolvedAction>, TowerElement, Point2D, Point2D)> =
+            Vec::new();
 
         for proj in &mut self.projectiles {
             // Tick fade-out for dying projectiles
@@ -461,6 +478,7 @@ impl GameState {
                                 proj.actions.clone(),
                                 proj.element,
                                 proj.current_pos.clone(),
+                                proj.origin.clone(),
                             ));
                             hit = true;
                             break;
@@ -539,10 +557,13 @@ impl GameState {
         // 7. Apply actions from hits
         self.player.hp -= player_damage;
 
-        for (idx, actions, element, pos) in enemy_hits {
+        for (idx, actions, element, pos, origin) in enemy_hits {
             if idx >= self.enemies.len() {
                 continue;
             }
+
+            // Calculate distance from origin to impact for distance-scaled damage
+            let distance = origin.distance_to(&pos);
 
             for action in &actions {
                 match action {
@@ -552,6 +573,10 @@ impl GameState {
                             ResolvedDamage::PercentHp(pct) => {
                                 self.enemies[idx].max_hp * pct / 100.0
                             }
+                            ResolvedDamage::DistanceScaled {
+                                base,
+                                bonus_per_distance,
+                            } => *base + (distance * bonus_per_distance),
                         };
 
                         match target {
@@ -806,6 +831,8 @@ impl GameState {
                     ResolvedAction::LifeSteal { .. } => {}
                     ResolvedAction::ColdAura { .. } => {}
                     ResolvedAction::Glaciation { .. } => {}
+                    ResolvedAction::PassiveBurnAura { .. } => {}
+                    ResolvedAction::CometStrike { .. } => {}
 
                     // Impact auras - create temporary aura at projectile impact location
                     ResolvedAction::ImpactAura {
@@ -969,6 +996,62 @@ impl GameState {
                             self.towers[tower_idx].passive_cooldowns[cooldown_idx] = *tick_rate;
                         }
                     }
+                    ResolvedAction::PassiveBurnAura { radius, dps } => {
+                        // Deal fire damage to all enemies in range (continuous)
+                        let dmg = dps * dt;
+                        for enemy in &mut self.enemies {
+                            if tower_pos.distance_to(&enemy.position) <= *radius {
+                                enemy.take_damage(dmg, element);
+                            }
+                        }
+                    }
+                    ResolvedAction::CometStrike {
+                        damage,
+                        target_count,
+                        interval,
+                    } => {
+                        // Check cooldown
+                        let cooldown_idx = active_skill_idx.unwrap_or(0);
+                        if cooldown_idx < self.towers[tower_idx].passive_cooldowns.len()
+                            && self.towers[tower_idx].passive_cooldowns[cooldown_idx] <= 0.0
+                            && !self.enemies.is_empty()
+                        {
+                            // Select random enemies to strike
+                            use rand::seq::SliceRandom;
+                            let mut rng = rand::thread_rng();
+
+                            let mut enemy_indices: Vec<usize> = self
+                                .enemies
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, e)| !e.is_dead())
+                                .map(|(i, _)| i)
+                                .collect();
+
+                            enemy_indices.shuffle(&mut rng);
+                            let targets_to_hit =
+                                enemy_indices.into_iter().take(*target_count as usize);
+
+                            for enemy_idx in targets_to_hit {
+                                // Deal damage
+                                self.enemies[enemy_idx].take_damage(*damage, element);
+
+                                // Create laser beam visual - blue color for electric comet
+                                let enemy_pos = self.enemies[enemy_idx].position.clone();
+                                self.laser_beams.push(LaserBeam {
+                                    start: tower_pos.clone(),
+                                    end: enemy_pos,
+                                    color: (0.58, 0.9, 0.6), // Bleu électrique
+                                    lifetime: 0.3,
+                                    max_lifetime: 0.3,
+                                    width: 1.0, // Fin
+                                });
+                            }
+
+                            // Reset cooldown
+                            self.towers[tower_idx].passive_cooldowns[cooldown_idx] = *interval;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1056,6 +1139,12 @@ impl GameState {
             pulse.radius = pulse.max_radius * progress;
         }
         self.gold_pulses.retain(|p| p.lifetime > 0.0);
+
+        // Update laser beams
+        for beam in &mut self.laser_beams {
+            beam.lifetime -= dt;
+        }
+        self.laser_beams.retain(|b| b.lifetime > 0.0);
 
         // 10. Remove enemies that reached the player (no shield)
         let player_radius = self.player.radius;

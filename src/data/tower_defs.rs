@@ -143,10 +143,17 @@ pub enum TowerAction {
         tick_rate: f32,
     },
 
-    /// Tir aléatoire sur la carte (bombardement)
+    /// Tir aléatoire sur la carte (bombardement) - DEPRECATED
     RandomBombard {
         damage: f32,
         radius: f32, // zone d'impact
+    },
+
+    /// Comète: frappe N ennemis aléatoires sur la carte avec un laser
+    CometStrike {
+        damage: f32,
+        target_count: u32,
+        interval: f32, // Intervalle entre chaque tir
     },
 
     /// Vol de vie (dégâts aux ennemis proches + heal joueur)
@@ -192,6 +199,9 @@ pub enum TowerAction {
         strength: f32,
     },
 
+    /// Aura de brûlure passive autour de la tour (dégâts de feu continus)
+    PassiveBurnAura { radius: f32, dps: f32 },
+
     /// Aura de froid à l'impact (variante spéciale pour Glacier)
     ImpactColdAura {
         radius: f32,
@@ -205,6 +215,11 @@ pub enum TowerAction {
 pub enum DamageType {
     Fixed(f32),
     PercentHp(f32),
+    /// Dégâts qui augmentent avec la distance: base + (distance * bonus_per_distance)
+    DistanceScaled {
+        base: f32,
+        bonus_per_distance: f32,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -234,6 +249,11 @@ pub enum ActionUpgradeTarget {
     // Impact Aura
     ImpactAuraRadius,
     ImpactAuraDuration,
+    // Sniper - Distance scaling
+    DistanceBonusDamage,
+    // Comet Strike
+    CometTargetCount,
+    CometInterval,
 }
 
 // ============================================================================
@@ -403,6 +423,11 @@ pub struct TowerDef {
 pub enum ResolvedDamage {
     Fixed(f32),
     PercentHp(f32),
+    /// Dégâts qui augmentent avec la distance
+    DistanceScaled {
+        base: f32,
+        bonus_per_distance: f32,
+    },
 }
 
 #[derive(Clone)]
@@ -452,6 +477,12 @@ pub enum ResolvedAction {
         damage: f32,
         radius: f32,
     },
+    /// Comète: frappe N ennemis aléatoires
+    CometStrike {
+        damage: f32,
+        target_count: u32,
+        interval: f32,
+    },
     LifeSteal {
         radius: f32,
         damage_per_second: f32,
@@ -492,6 +523,11 @@ pub enum ResolvedAction {
         cold_duration: f32,
         freeze_duration: f32,
     },
+    /// Aura de brûlure passive (dégâts de feu continus autour de la tour)
+    PassiveBurnAura {
+        radius: f32,
+        dps: f32,
+    },
 }
 
 impl TowerActionDef {
@@ -517,6 +553,30 @@ impl TowerActionDef {
                             }
                         }
                         ResolvedDamage::PercentHp(val)
+                    }
+                    DamageType::DistanceScaled {
+                        base,
+                        bonus_per_distance,
+                    } => {
+                        let mut base_val = *base;
+                        let mut bonus_val = *bonus_per_distance;
+                        for u in &self.upgrades {
+                            match u.applies_to {
+                                ActionUpgradeTarget::Damage => {
+                                    base_val +=
+                                        u.prop.bonus_per_level * u.prop.current_level as f32;
+                                }
+                                ActionUpgradeTarget::DistanceBonusDamage => {
+                                    bonus_val +=
+                                        u.prop.bonus_per_level * u.prop.current_level as f32;
+                                }
+                                _ => {}
+                            }
+                        }
+                        ResolvedDamage::DistanceScaled {
+                            base: base_val,
+                            bonus_per_distance: bonus_val,
+                        }
                     }
                 };
                 // Apply AoeRadius and MaxTargets upgrades
@@ -939,6 +999,57 @@ impl TowerActionDef {
                     freeze_duration: freeze_dur,
                 }
             }
+            TowerAction::PassiveBurnAura { radius, dps } => {
+                let mut rad = *radius;
+                let mut damage = *dps;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::AuraRadius => {
+                            rad += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::Damage => {
+                            damage += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::PassiveBurnAura {
+                    radius: rad,
+                    dps: damage,
+                }
+            }
+            TowerAction::CometStrike {
+                damage,
+                target_count,
+                interval,
+            } => {
+                let mut dmg = *damage;
+                let mut count = *target_count;
+                let mut int = *interval;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::Damage => {
+                            dmg += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::CometTargetCount => {
+                            count += (u.prop.bonus_per_level * u.prop.current_level as f32) as u32;
+                        }
+                        ActionUpgradeTarget::CometInterval => {
+                            // Réduction de l'intervalle (négatif)
+                            int -= u.prop.bonus_per_level * u.prop.current_level as f32;
+                            if int < 0.5 {
+                                int = 0.5; // Minimum 0.5s
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::CometStrike {
+                    damage: dmg,
+                    target_count: count,
+                    interval: int,
+                }
+            }
         }
     }
 }
@@ -1099,7 +1210,16 @@ fn extract_base_value(action: &TowerAction, target: ActionUpgradeTarget) -> f32 
     match (action, target) {
         (TowerAction::ApplyDamage { damage, .. }, ActionUpgradeTarget::Damage) => match damage {
             DamageType::Fixed(v) | DamageType::PercentHp(v) => *v,
+            DamageType::DistanceScaled { base, .. } => *base,
         },
+        (TowerAction::ApplyDamage { damage, .. }, ActionUpgradeTarget::DistanceBonusDamage) => {
+            match damage {
+                DamageType::DistanceScaled {
+                    bonus_per_distance, ..
+                } => *bonus_per_distance,
+                _ => 0.0,
+            }
+        }
         (TowerAction::ApplyDamage { target: t, .. }, ActionUpgradeTarget::AoeRadius) => {
             if let EffectTarget::Area(r) = t {
                 *r
@@ -1231,6 +1351,17 @@ fn extract_base_value(action: &TowerAction, target: ActionUpgradeTarget) -> f32 
             },
             ActionUpgradeTarget::FreezeDuration,
         ) => *freeze_duration,
+        // PassiveBurnAura
+        (TowerAction::PassiveBurnAura { radius, .. }, ActionUpgradeTarget::AuraRadius) => *radius,
+        (TowerAction::PassiveBurnAura { dps, .. }, ActionUpgradeTarget::Damage) => *dps,
+        // CometStrike
+        (TowerAction::CometStrike { damage, .. }, ActionUpgradeTarget::Damage) => *damage,
+        (TowerAction::CometStrike { target_count, .. }, ActionUpgradeTarget::CometTargetCount) => {
+            *target_count as f32
+        }
+        (TowerAction::CometStrike { interval, .. }, ActionUpgradeTarget::CometInterval) => {
+            *interval
+        }
         _ => 0.0,
     }
 }
@@ -1410,20 +1541,18 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     .build(),
             )
             .skill(
-                SkillBuilder::active(2, "Brasier")
-                    .description("Inflige des degats de feu en zone autour de la cible")
+                SkillBuilder::passive(2, "Brasier")
+                    .description("Aura de feu autour de la tour qui brule les ennemis proches")
                     .icon("B")
                     .cost(120)
-                    .range(100.0, 10.0, 5)
-                    .attack_speed(0.8, 0.1, 5)
                     .action_with_upgrades(
-                        TowerAction::ApplyDamage {
-                            target: EffectTarget::Area(60.0),
-                            damage: DamageType::Fixed(15.0),
+                        TowerAction::PassiveBurnAura {
+                            radius: 150.0,
+                            dps: 8.0,
                         },
                         vec![
-                            ("Degats", ActionUpgradeTarget::Damage, 3.0, 5),
-                            ("Rayon", ActionUpgradeTarget::AoeRadius, 10.0, 5),
+                            ("Degats/s", ActionUpgradeTarget::Damage, 2.0, 5),
+                            ("Rayon", ActionUpgradeTarget::AuraRadius, 15.0, 5),
                         ],
                     )
                     .build(),
@@ -1532,6 +1661,25 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     )
                     .build(),
             )
+            .skill(
+                SkillBuilder::passive(2, "Tesla")
+                    .description("Eclairs bleus qui frappent des ennemis aleatoires sur la carte")
+                    .icon("!")
+                    .cost(150)
+                    .action_with_upgrades(
+                        TowerAction::CometStrike {
+                            damage: 80.0,
+                            target_count: 2,
+                            interval: 3.0,
+                        },
+                        vec![
+                            ("Degats", ActionUpgradeTarget::Damage, 5.0, 5),
+                            ("Cibles", ActionUpgradeTarget::CometTargetCount, 1.0, 3),
+                            ("Intervalle", ActionUpgradeTarget::CometInterval, 0.3, 5),
+                        ],
+                    )
+                    .build(),
+            )
             .build(),
         // ===================================================================
         // SEISME - Tour sismique (Sismique = stun on hit)
@@ -1591,12 +1739,12 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
         // SNIPER - Tour longue portée
         // ===================================================================
         TowerBuilder::new(TowerKind::Sniper, "Sniper", TowerElement::Electric)
-            .description("Tour de precision a longue portee")
+            .description("Tour de precision a longue portee, bonus de degats selon la distance")
             .cost(130)
             .target_priority(TargetPriority::HighestHp)
             .skill(
                 SkillBuilder::active(0, "Tir de Precision")
-                    .description("Tir unique tres longue portee")
+                    .description("Tir longue portee, +0.1 degats par unite de distance")
                     .icon("P")
                     .cost(0)
                     .range(280.0, 15.0, 5)
@@ -1606,15 +1754,26 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     .action_with_upgrades(
                         TowerAction::ApplyDamage {
                             target: EffectTarget::Single,
-                            damage: DamageType::Fixed(25.0),
+                            damage: DamageType::DistanceScaled {
+                                base: 15.0,
+                                bonus_per_distance: 0.1,
+                            },
                         },
-                        vec![("Degats", ActionUpgradeTarget::Damage, 4.0, 5)],
+                        vec![
+                            ("Degats base", ActionUpgradeTarget::Damage, 3.0, 5),
+                            (
+                                "Bonus distance",
+                                ActionUpgradeTarget::DistanceBonusDamage,
+                                0.02,
+                                5,
+                            ),
+                        ],
                     )
                     .build(),
             )
             .skill(
                 SkillBuilder::active(1, "Tir Chaine")
-                    .description("Le projectile rebondit entre cibles")
+                    .description("Le projectile rebondit entre cibles, +0.05 degats/distance")
                     .icon("C")
                     .cost(100)
                     .range(250.0, 12.0, 5)
@@ -1626,9 +1785,20 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                                 count: 4,
                                 range: 180.0,
                             },
-                            damage: DamageType::Fixed(15.0),
+                            damage: DamageType::DistanceScaled {
+                                base: 10.0,
+                                bonus_per_distance: 0.05,
+                            },
                         },
-                        vec![("Degats", ActionUpgradeTarget::Damage, 3.0, 5)],
+                        vec![
+                            ("Degats base", ActionUpgradeTarget::Damage, 2.0, 5),
+                            (
+                                "Bonus distance",
+                                ActionUpgradeTarget::DistanceBonusDamage,
+                                0.01,
+                                5,
+                            ),
+                        ],
                     )
                     .build(),
             )
@@ -1669,25 +1839,6 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                             damage: DamageType::Fixed(20.0),
                         },
                         vec![("Degats", ActionUpgradeTarget::Damage, 4.0, 5)],
-                    )
-                    .build(),
-            )
-            .skill(
-                SkillBuilder::active(2, "Bombardement")
-                    .description("Obus aleatoire, tres lourds degats")
-                    .icon("B")
-                    .cost(150)
-                    .range_fixed(300.0) // Grande portée mais position aléatoire
-                    .attack_speed_fixed(0.33) // 1 tir / 3s
-                    .action_with_upgrades(
-                        TowerAction::RandomBombard {
-                            damage: 50.0,
-                            radius: 60.0,
-                        },
-                        vec![
-                            ("Degats", ActionUpgradeTarget::BombardDamage, 10.0, 5),
-                            ("Zone", ActionUpgradeTarget::BombardRadius, 10.0, 5),
-                        ],
                     )
                     .build(),
             )

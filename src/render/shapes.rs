@@ -583,6 +583,150 @@ pub fn draw_impact_aura(
     draw_orbiting_particles(window, screen_pos, aura.radius, h, s, l, elapsed, 0);
 }
 
+pub fn draw_laser_beam(window: &mut Window, center: Point<Pixels>, beam: &crate::game::LaserBeam) {
+    let start_pos = point(center.x + px(beam.start.x), center.y + px(beam.start.y));
+    let end_pos = point(center.x + px(beam.end.x), center.y + px(beam.end.y));
+
+    let (h, s, l) = beam.color;
+
+    // Fade out based on lifetime
+    let alpha = (beam.lifetime / beam.max_lifetime).min(1.0);
+
+    // Calculate direction
+    let dx = f32::from(end_pos.x) - f32::from(start_pos.x);
+    let dy = f32::from(end_pos.y) - f32::from(start_pos.y);
+    let len = (dx * dx + dy * dy).sqrt();
+
+    if len < 1.0 {
+        return;
+    }
+
+    let dir_x = dx / len;
+    let dir_y = dy / len;
+    let nx = -dir_y;
+    let ny = dir_x;
+
+    // Generate zigzag lightning points
+    let segment_count = ((len / 18.0) as usize).max(5);
+    let max_amplitude = 5.0 * beam.width;
+
+    let mut lightning_points: Vec<(f32, f32)> = Vec::with_capacity(segment_count + 1);
+    lightning_points.push((f32::from(start_pos.x), f32::from(start_pos.y)));
+
+    // Seed for pseudo-random but consistent zigzag
+    let seed = beam.start.x * 100.0 + beam.start.y * 10.0 + beam.end.x + beam.end.y * 0.1;
+
+    for i in 1..segment_count {
+        let t = i as f32 / segment_count as f32;
+        let base_x = f32::from(start_pos.x) + dx * t;
+        let base_y = f32::from(start_pos.y) + dy * t;
+
+        // Envelope en cloche: resserré aux extrémités
+        let envelope = (t * (1.0 - t) * 4.0).sqrt();
+
+        // Pseudo-random direction et amplitude pour chaque segment
+        let hash = ((i as f32 * 127.1 + seed * 311.7).sin() * 43758.5453).fract();
+        let hash2 = ((i as f32 * 269.5 + seed * 183.3).sin() * 43758.5453).fract();
+
+        // Direction aléatoire (-1 ou 1) avec biais vers l'alternance
+        let zigzag_dir = if hash > 0.3 {
+            if i % 2 == 0 { 1.0 } else { -1.0 }
+        } else {
+            if i % 2 == 0 { -1.0 } else { 1.0 }
+        };
+
+        // Amplitude variable (entre 40% et 100% du max)
+        let variation = (0.4 + hash2 * 0.6) * max_amplitude * envelope;
+
+        let offset_x = nx * zigzag_dir * variation;
+        let offset_y = ny * zigzag_dir * variation;
+
+        lightning_points.push((base_x + offset_x, base_y + offset_y));
+    }
+
+    lightning_points.push((f32::from(end_pos.x), f32::from(end_pos.y)));
+
+    // Draw glow (thicker, more transparent)
+    let glow_width = 6.0 * beam.width * alpha;
+    let glow_color = Hsla {
+        h,
+        s,
+        l: l * 0.8,
+        a: alpha * 0.25,
+    };
+
+    for i in 0..lightning_points.len() - 1 {
+        let (x1, y1) = lightning_points[i];
+        let (x2, y2) = lightning_points[i + 1];
+        draw_lightning_segment(window, x1, y1, x2, y2, glow_width, glow_color);
+    }
+
+    // Draw core (thinner, brighter)
+    let core_width = 2.0 * beam.width * alpha;
+    let core_color = Hsla {
+        h,
+        s: s * 0.4,
+        l: 0.95,
+        a: alpha * 0.9,
+    };
+
+    for i in 0..lightning_points.len() - 1 {
+        let (x1, y1) = lightning_points[i];
+        let (x2, y2) = lightning_points[i + 1];
+        draw_lightning_segment(window, x1, y1, x2, y2, core_width, core_color);
+    }
+
+    // Draw impact point (bright circle at end)
+    draw_circle(
+        window,
+        end_pos,
+        5.0 * beam.width * alpha,
+        Hsla {
+            h,
+            s,
+            l: 0.95,
+            a: alpha,
+        },
+    );
+}
+
+/// Dessine un segment d'éclair (ligne épaisse)
+fn draw_lightning_segment(
+    window: &mut Window,
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    width: f32,
+    color: Hsla,
+) {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let len = (dx * dx + dy * dy).sqrt();
+
+    if len < 0.1 {
+        return;
+    }
+
+    let nx = -dy / len;
+    let ny = dx / len;
+    let half_w = width * 0.5;
+
+    let points = vec![
+        point(px(x1 + nx * half_w), px(y1 + ny * half_w)),
+        point(px(x2 + nx * half_w), px(y2 + ny * half_w)),
+        point(px(x2 - nx * half_w), px(y2 - ny * half_w)),
+        point(px(x1 - nx * half_w), px(y1 - ny * half_w)),
+    ];
+
+    let mut path = Path::new(points[0]);
+    for p in &points[1..] {
+        path.line_to(*p);
+    }
+    path.line_to(points[0]);
+    window.paint_path(path, color);
+}
+
 pub fn draw_shield(window: &mut Window, center: Point<Pixels>, shield: &Shield) {
     let ratio = shield.hp / shield.max_hp;
 

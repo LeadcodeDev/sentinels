@@ -11,29 +11,31 @@ use crate::game::tower::SkillState;
 use crate::game::{GamePhase, GameState};
 use crate::screens::play::PlayScreen;
 
-const SIDEBAR_WIDTH: f32 = 200.0;
+const SIDEBAR_MIN_WIDTH: f32 = 200.0;
 
-pub fn sidebar_width() -> f32 {
-    SIDEBAR_WIDTH
+/// Calcule la largeur de la sidebar (1/6 de l'écran, minimum 200px)
+pub fn sidebar_width(screen_width: f32) -> f32 {
+    (screen_width / 6.0).max(SIDEBAR_MIN_WIDTH)
 }
 
-pub fn render_sidebar(game: &GameState, cx: &mut Context<PlayScreen>) -> impl IntoElement + use<> {
+pub fn render_sidebar(
+    game: &GameState,
+    selected_skill_tab: Option<usize>,
+    cx: &mut Context<PlayScreen>,
+) -> impl IntoElement + use<> {
     let hp = game.player.hp;
     let max_hp = game.player.max_hp;
-    let gold = game.economy.gold;
-    let pepites = game.economy.pepites;
-    let wave = game.economy.wave_number;
-    let score = game.economy.score;
     let phase = game.phase;
     let tower_count = game.towers.len();
     let max_towers = game.max_towers;
     let player_gold = game.economy.gold;
     let shield = game.shield.clone();
+    let current_sidebar_width = sidebar_width(game.viewport_size.0);
 
-    let selected_section = selected_tower_section(game, cx);
+    let selected_section = selected_tower_section(game, selected_skill_tab, cx);
 
     v_flex()
-        .w(px(SIDEBAR_WIDTH))
+        .w(px(current_sidebar_width))
         .h_full()
         .flex_shrink_0()
         .bg(Hsla {
@@ -51,10 +53,8 @@ pub fn render_sidebar(game: &GameState, cx: &mut Context<PlayScreen>) -> impl In
         })
         .p_3()
         .gap_3()
-        // Stats section
-        .child(stats_section(
-            hp, max_hp, gold, pepites, wave, score, &shield,
-        ))
+        // Stats section (only HP and shield now)
+        .child(stats_section(hp, max_hp, &shield))
         // Tower grid section
         .child(tower_grid_section(player_gold, tower_count, max_towers, cx))
         // Selected tower section (scrollable)
@@ -76,23 +76,57 @@ pub fn render_sidebar(game: &GameState, cx: &mut Context<PlayScreen>) -> impl In
         )
 }
 
-fn stat_row(label: &'static str, value: String, color: impl Into<Hsla>) -> impl IntoElement {
-    h_flex()
-        .items_center()
-        .justify_between()
-        .child(div().text_xs().text_color(rgb(0xaaaaaa)).child(label))
-        .child(div().text_sm().text_color(color.into()).child(value))
+/// Renders the top-left overlay with Wave, Gold, Pepites
+pub fn render_top_left_stats(game: &GameState) -> impl IntoElement {
+    let gold = game.economy.gold;
+    let pepites = game.economy.pepites;
+    let wave = game.economy.wave_number;
+
+    div()
+        .absolute()
+        .top_2()
+        .left_2()
+        .flex()
+        .gap_3()
+        .child(
+            h_flex()
+                .items_center()
+                .gap_1()
+                .child(div().text_xs().text_color(rgb(0x888888)).child("Vague"))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(0xffffff))
+                        .child(format!("{}", wave)),
+                ),
+        )
+        .child(
+            h_flex()
+                .items_center()
+                .gap_1()
+                .child(div().text_xs().text_color(rgb(0x888888)).child("Or"))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(0xffd700))
+                        .child(format!("{}", gold)),
+                ),
+        )
+        .child(
+            h_flex()
+                .items_center()
+                .gap_1()
+                .child(div().text_xs().text_color(rgb(0x888888)).child("Pepites"))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(0xcc66ff))
+                        .child(format!("{}", pepites)),
+                ),
+        )
 }
 
-fn stats_section(
-    hp: f32,
-    max_hp: f32,
-    gold: u32,
-    pepites: u32,
-    wave: u32,
-    score: u32,
-    shield: &crate::game::Shield,
-) -> impl IntoElement {
+fn stats_section(hp: f32, max_hp: f32, shield: &crate::game::Shield) -> impl IntoElement {
     let shield_unlocked = shield.is_unlocked();
     let shield_active = shield.active;
     let shield_hp = shield.hp;
@@ -145,11 +179,6 @@ fn stats_section(
                     ),
             )
         })
-        // Stats using consistent stat_row helper
-        .child(stat_row("Or", format!("{}", gold), rgb(0xffd700)))
-        .child(stat_row("Pepites", format!("{}", pepites), rgb(0xcc66ff)))
-        .child(stat_row("Vague", format!("{}", wave), rgb(0xffffff)))
-        .child(stat_row("Score", format!("{}", score), rgb(0xffffff)))
 }
 
 fn tower_grid_section(
@@ -194,6 +223,7 @@ fn tower_grid_section(
 
 fn selected_tower_section(
     game: &GameState,
+    selected_skill_tab: Option<usize>,
     cx: &mut Context<PlayScreen>,
 ) -> Option<impl IntoElement + use<>> {
     let tower_idx = game.selected_tower?;
@@ -208,6 +238,7 @@ fn selected_tower_section(
     // Build skill icons row
     let def = get_def(tower.kind);
     let skill_count = def.skills.len();
+    let selected_skill_idx = selected_skill_tab.unwrap_or(tower.active_skill_index.unwrap_or(0));
     let skill_icons: Vec<AnyElement> = (0..skill_count)
         .map(|skill_idx| {
             let skill_def = &def.skills[skill_idx];
@@ -217,24 +248,15 @@ fn selected_tower_section(
             let skill_type = skill_def.skill_type;
             let purchase_cost = skill_def.purchase_cost;
 
+            let is_locked = matches!(skill_state, SkillState::Locked);
+            let is_active = matches!(skill_state, SkillState::Active(_));
+            let is_selected_tab = skill_idx == selected_skill_idx;
+
             // Determine button state and color
-            let (bg_alpha, border_alpha, is_disabled, tooltip_text) = match skill_state {
-                SkillState::Locked => {
-                    let can_afford = gold >= purchase_cost;
-                    (
-                        if can_afford { 0.1 } else { 0.05 },
-                        if can_afford { 0.4 } else { 0.2 },
-                        !can_afford,
-                        format!("{} - {}g", skill_name, purchase_cost),
-                    )
-                }
-                SkillState::Purchased(_) => (
-                    0.2,
-                    0.6,
-                    false,
-                    format!("{} (cliquer pour activer)", skill_name),
-                ),
-                SkillState::Active(_) => (0.4, 1.0, false, format!("{} (active)", skill_name)),
+            let (bg_alpha, tooltip_text) = match skill_state {
+                SkillState::Locked => (0.05, format!("{} - {}g", skill_name, purchase_cost)),
+                SkillState::Purchased(_) => (0.2, format!("{}", skill_name)),
+                SkillState::Active(_) => (0.4, format!("{} (active)", skill_name)),
             };
 
             // Color based on skill type
@@ -244,29 +266,101 @@ fn selected_tower_section(
             };
             let base_hsla: Hsla = base_color.into();
 
-            let bg_color = Hsla {
-                a: bg_alpha,
-                ..base_hsla
-            };
-            let border_color = Hsla {
-                a: border_alpha,
-                ..base_hsla
-            };
-            let hover_color = Hsla {
-                a: bg_alpha + 0.15,
-                ..base_hsla
-            };
-            let fg_color = Hsla {
-                a: if matches!(skill_state, SkillState::Locked) && gold < purchase_cost {
-                    0.4
-                } else {
-                    1.0
-                },
-                ..base_hsla
+            // Locked skills: no border, dimmed
+            let (bg_color, border_color, hover_color, fg_color) = if is_locked {
+                (
+                    Hsla {
+                        h: 0.0,
+                        s: 0.0,
+                        l: 0.15,
+                        a: 0.5,
+                    },
+                    Hsla {
+                        h: 0.0,
+                        s: 0.0,
+                        l: 0.0,
+                        a: 0.0, // No border for locked
+                    },
+                    Hsla {
+                        h: 0.0,
+                        s: 0.0,
+                        l: 0.2,
+                        a: 0.6,
+                    },
+                    Hsla {
+                        h: 0.0,
+                        s: 0.0,
+                        l: 0.5,
+                        a: if gold >= purchase_cost { 0.8 } else { 0.4 },
+                    },
+                )
+            } else if is_active {
+                (
+                    Hsla {
+                        a: 0.5,
+                        ..base_hsla
+                    },
+                    Hsla {
+                        a: 1.0,
+                        ..base_hsla
+                    },
+                    Hsla {
+                        a: 0.6,
+                        ..base_hsla
+                    },
+                    Hsla {
+                        a: 1.0,
+                        ..base_hsla
+                    },
+                )
+            } else if is_selected_tab {
+                // Purchased and selected tab
+                (
+                    Hsla {
+                        a: 0.3,
+                        ..base_hsla
+                    },
+                    Hsla {
+                        a: 0.8,
+                        ..base_hsla
+                    },
+                    Hsla {
+                        a: 0.4,
+                        ..base_hsla
+                    },
+                    Hsla {
+                        a: 1.0,
+                        ..base_hsla
+                    },
+                )
+            } else {
+                // Purchased but not selected
+                (
+                    Hsla {
+                        a: bg_alpha,
+                        ..base_hsla
+                    },
+                    Hsla {
+                        a: 0.4,
+                        ..base_hsla
+                    },
+                    Hsla {
+                        a: bg_alpha + 0.15,
+                        ..base_hsla
+                    },
+                    Hsla {
+                        a: 0.8,
+                        ..base_hsla
+                    },
+                )
             };
 
-            // Highlight active skill with a ring
-            let is_active = matches!(skill_state, SkillState::Active(_));
+            // Label: add lock icon for locked skills
+            let label_text = if is_locked {
+                format!("\u{1F512}{}", skill_icon) // 🔒 + icon
+            } else {
+                skill_icon.to_string()
+            };
 
             Button::new(SharedString::from(format!(
                 "skill_icon_{}_{}",
@@ -280,101 +374,106 @@ fn selected_tower_section(
                     .hover(hover_color)
                     .active(hover_color),
             )
-            .label(skill_icon)
-            .disabled(is_disabled)
+            .label(label_text)
             .tooltip(SharedString::from(tooltip_text))
-            .when(is_active, |btn| {
-                btn.custom(
-                    ButtonCustomVariant::new(cx)
-                        .color(Hsla {
-                            a: 0.5,
-                            ..base_hsla
-                        })
-                        .foreground(fg_color)
-                        .border(Hsla {
-                            a: 1.0,
-                            ..base_hsla
-                        })
-                        .hover(Hsla {
-                            a: 0.6,
-                            ..base_hsla
-                        })
-                        .active(Hsla {
-                            a: 0.6,
-                            ..base_hsla
-                        }),
-                )
-            })
             .on_click(cx.listener(move |screen, _, _window, _cx| {
-                if let Some(idx) = screen.game_state.selected_tower {
-                    // Copier l'état de la skill pour éviter les problèmes de borrow
-                    let skill_is_locked = screen
-                        .game_state
-                        .towers
-                        .get(idx)
-                        .map(|t| matches!(t.skills[skill_idx], SkillState::Locked))
-                        .unwrap_or(true);
-                    let skill_is_purchased = screen
-                        .game_state
-                        .towers
-                        .get(idx)
-                        .map(|t| matches!(t.skills[skill_idx], SkillState::Purchased(_)))
-                        .unwrap_or(false);
-
-                    if skill_is_locked {
-                        screen.game_state.purchase_skill(idx, skill_idx);
-                    } else if skill_is_purchased {
-                        screen.game_state.activate_skill(idx, skill_idx);
-                    }
-                    // Si Active, ne rien faire
-                }
+                // Clicking on any tab just selects it to view its details
+                screen.selected_skill_tab = Some(skill_idx);
             }))
             .into_any_element()
         })
         .collect();
 
-    // Build stat rows for the active skill only
-    // Now only one skill is active at a time (whether Active or Passive type)
-    let (active_skill_name, active_skill_desc) = tower
-        .active_skill_index
-        .map(|idx| {
-            let def = get_def(tower.kind);
-            (def.skills[idx].name, def.skills[idx].description)
-        })
-        .unwrap_or(("", ""));
+    // Get the selected skill tab (defaults to active skill)
+    let viewed_skill_idx = selected_skill_idx;
+    let viewed_skill_def = &def.skills[viewed_skill_idx];
+    let viewed_skill_state = &tower.skills[viewed_skill_idx];
+    let viewed_skill_name = viewed_skill_def.name;
+    let viewed_skill_desc = viewed_skill_def.description;
+    let viewed_skill_cost = viewed_skill_def.purchase_cost;
+    let is_viewed_skill_locked = matches!(viewed_skill_state, SkillState::Locked);
+    let is_viewed_skill_active = matches!(viewed_skill_state, SkillState::Active(_));
+    let is_viewed_skill_purchased = viewed_skill_state.is_purchased();
+    let can_afford_skill = gold >= viewed_skill_cost;
 
-    let upgrades = if has_notification_settings {
+    // Get upgrades for the viewed skill (not the active one)
+    let upgrades = if has_notification_settings || !is_viewed_skill_purchased {
         Vec::new()
     } else {
-        tower.get_active_skill_upgrades()
+        tower.get_skill_upgrades(viewed_skill_idx)
     };
 
     let mut stat_elements: Vec<AnyElement> = Vec::new();
 
-    // Show active skill name and description
-    if !active_skill_name.is_empty() {
+    // Show viewed skill name and description
+    stat_elements.push(
+        div()
+            .text_xs()
+            .text_color(if is_viewed_skill_active {
+                rgb(0x44aaff)
+            } else if is_viewed_skill_locked {
+                rgb(0x666666)
+            } else {
+                rgb(0xaaaaaa)
+            })
+            .child(if is_viewed_skill_active {
+                format!("{} (active)", viewed_skill_name)
+            } else if is_viewed_skill_locked {
+                format!("{} (verrouille)", viewed_skill_name)
+            } else {
+                viewed_skill_name.to_string()
+            })
+            .into_any_element(),
+    );
+    if !viewed_skill_desc.is_empty() {
         stat_elements.push(
             div()
                 .text_xs()
-                .text_color(rgb(0x88cc88))
-                .child(format!("Active: {}", active_skill_name))
+                .text_color(rgb(0x888888))
+                .child(viewed_skill_desc)
                 .into_any_element(),
         );
-        if !active_skill_desc.is_empty() {
-            stat_elements.push(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x888888))
-                    .child(active_skill_desc)
-                    .into_any_element(),
-            );
-        }
+    }
+
+    // Add "Buy" button if skill is locked
+    if is_viewed_skill_locked {
+        stat_elements.push(
+            Button::new("buy_skill_btn")
+                .primary()
+                .label(format!("Acheter ({}g)", viewed_skill_cost))
+                .compact()
+                .with_size(Size::Small)
+                .disabled(!can_afford_skill)
+                .on_click(cx.listener(move |screen, _, _window, _cx| {
+                    if let Some(idx) = screen.game_state.selected_tower {
+                        screen.game_state.purchase_skill(idx, viewed_skill_idx);
+                    }
+                }))
+                .into_any_element(),
+        );
+    }
+    // Add "Activate" button if this skill is purchased but not active
+    else if is_viewed_skill_purchased && !is_viewed_skill_active {
+        stat_elements.push(
+            Button::new("activate_skill_btn")
+                .primary()
+                .label("Activer")
+                .compact()
+                .with_size(Size::Small)
+                .on_click(cx.listener(move |screen, _, _window, _cx| {
+                    if let Some(idx) = screen.game_state.selected_tower {
+                        screen.game_state.activate_skill(idx, viewed_skill_idx);
+                    }
+                }))
+                .into_any_element(),
+        );
     }
 
     for (upgrade_id, uname, prop) in &upgrades {
         let current_value = prop.value();
         let is_maxed = !prop.can_upgrade();
         let uid = *upgrade_id;
+        let skill_idx_for_upgrade = viewed_skill_idx;
 
         // Format value
         let value_str = if current_value.fract() == 0.0 {
@@ -417,7 +516,11 @@ fn selected_tower_section(
                             .disabled(!can_afford)
                             .on_click(cx.listener(move |screen, _, _window, _cx| {
                                 if let Some(idx) = screen.game_state.selected_tower {
-                                    screen.game_state.upgrade_tower(idx, uid);
+                                    screen.game_state.upgrade_tower_skill(
+                                        idx,
+                                        skill_idx_for_upgrade,
+                                        uid,
+                                    );
                                 }
                             })),
                     ),
@@ -540,12 +643,6 @@ fn selected_tower_section(
             )
     });
 
-    // Get active skill name and description for display
-    let (active_skill_name, active_skill_description) = tower
-        .active_skill_index
-        .map(|idx| (def.skills[idx].name, def.skills[idx].description))
-        .unwrap_or(("Aucune", ""));
-
     Some(
         div()
             .id("selected_tower_panel")
@@ -575,27 +672,6 @@ fn selected_tower_section(
                     )
                     .child(h_flex().gap_1().children(skill_icons)),
             )
-            // Active skill name and description
-            .when(!has_notification_settings, |this| {
-                this.child(
-                    v_flex()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0x44aaff))
-                                .child(format!("Active: {}", active_skill_name)),
-                        )
-                        .when(!active_skill_description.is_empty(), |this| {
-                            this.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(rgb(0x888888))
-                                    .child(active_skill_description),
-                            )
-                        }),
-                )
-            })
             // Stats with inline upgrades (only for active skill)
             .children(stat_elements)
             // Target priority button (if tower attacks)

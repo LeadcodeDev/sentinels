@@ -18,6 +18,7 @@ pub enum PlayScreenEvent {
 pub struct PlayScreen {
     pub game_state: GameState,
     pub game_running: bool,
+    pub selected_skill_tab: Option<usize>,
     cursor_pos: Option<Point<Pixels>>,
     loop_started: bool,
 }
@@ -29,6 +30,7 @@ impl PlayScreen {
         Self {
             game_state: GameState::new(save_data),
             game_running: true,
+            selected_skill_tab: None,
             cursor_pos: None,
             loop_started: false,
         }
@@ -69,8 +71,8 @@ impl PlayScreen {
 
     fn get_placement_preview(&self) -> Option<PlacementPreview> {
         let cursor = self.cursor_pos?;
-        let sidebar_w = hud::sidebar_width();
         let viewport = self.game_state.viewport_size;
+        let sidebar_w = hud::sidebar_width(viewport.0);
         let canvas_width = viewport.0 - sidebar_w;
         let canvas_height = viewport.1;
         let center_x = canvas_width / 2.0;
@@ -121,8 +123,8 @@ impl Render for PlayScreen {
         let game_canvas = render::render_game(&self.game_state, viewport_size, placement_preview);
 
         let left_click = cx.listener(|this, event: &MouseDownEvent, _window, _cx| {
-            let sidebar_w = hud::sidebar_width();
             let viewport_size = this.game_state.viewport_size;
+            let sidebar_w = hud::sidebar_width(viewport_size.0);
             let canvas_width = viewport_size.0 - sidebar_w;
             let canvas_height = viewport_size.1;
             let center_x = canvas_width / 2.0;
@@ -134,7 +136,11 @@ impl Render for PlayScreen {
                 this.game_state.try_move_tower(tower_idx, game_x, game_y);
             } else if let Some(kind) = this.game_state.placement_mode.take() {
                 this.game_state.try_place_tower(kind, game_x, game_y);
+                // Reset skill tab when placing a new tower
+                this.selected_skill_tab = None;
             } else {
+                // Reset skill tab when selecting/deselecting towers
+                this.selected_skill_tab = None;
                 this.game_state.try_select_at(game_x, game_y);
             }
         });
@@ -142,6 +148,7 @@ impl Render for PlayScreen {
             this.game_state.placement_mode = None;
             this.game_state.move_mode = None;
             this.game_state.selected_tower = None;
+            this.selected_skill_tab = None;
         });
         let mouse_move = cx.listener(|this, event: &MouseMoveEvent, _window, _cx| {
             this.cursor_pos = Some(event.position);
@@ -151,11 +158,13 @@ impl Render for PlayScreen {
                 this.game_state.placement_mode = None;
                 this.game_state.move_mode = None;
                 this.game_state.selected_tower = None;
+                this.selected_skill_tab = None;
             }
         });
 
-        let sidebar = hud::render_sidebar(&self.game_state, cx);
+        let sidebar = hud::render_sidebar(&self.game_state, self.selected_skill_tab, cx);
         let speed_buttons = render_speed_buttons(&self.game_state, cx);
+        let top_left_stats = hud::render_top_left_stats(&self.game_state);
         let is_game_over = self.game_state.phase == GamePhase::GameOver;
         let score = self.game_state.economy.score;
         let wave = self.game_state.economy.wave_number;
@@ -177,7 +186,8 @@ impl Render for PlayScreen {
                             .on_mouse_down(MouseButton::Left, left_click)
                             .on_mouse_down(MouseButton::Right, right_click)
                             .on_mouse_move(mouse_move)
-                            .child(speed_buttons),
+                            .child(speed_buttons)
+                            .child(top_left_stats),
                     )
                     .child(sidebar)
                     .on_key_down(key_down),
