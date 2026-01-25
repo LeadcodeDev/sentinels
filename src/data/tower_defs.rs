@@ -181,6 +181,24 @@ pub enum TowerAction {
         freeze_duration: f32,
         tick_rate: f32, // Intervalle entre chaque tick (en secondes)
     },
+
+    /// Aura d'impact: crée une aura temporaire à l'emplacement d'impact du projectile
+    /// L'aura applique un état élémentaire aux ennemis qui y entrent
+    ImpactAura {
+        radius: f32,
+        duration: f32, // Durée de vie de l'aura
+        state: ElementalStateKind,
+        state_duration: f32,
+        strength: f32,
+    },
+
+    /// Aura de froid à l'impact (variante spéciale pour Glacier)
+    ImpactColdAura {
+        radius: f32,
+        duration: f32, // Durée de vie de l'aura
+        cold_duration: f32,
+        freeze_duration: f32,
+    },
 }
 
 #[derive(Clone)]
@@ -213,6 +231,9 @@ pub enum ActionUpgradeTarget {
     ColdDuration,
     FreezeDuration,
     GlaciationDamagePercent,
+    // Impact Aura
+    ImpactAuraRadius,
+    ImpactAuraDuration,
 }
 
 // ============================================================================
@@ -455,6 +476,21 @@ pub enum ResolvedAction {
         cold_duration: f32,
         freeze_duration: f32,
         tick_rate: f32,
+    },
+    /// Aura d'impact: crée une aura temporaire à l'emplacement d'impact
+    ImpactAura {
+        radius: f32,
+        duration: f32,
+        state: ElementalStateKind,
+        state_duration: f32,
+        strength: f32,
+    },
+    /// Aura de froid à l'impact
+    ImpactColdAura {
+        radius: f32,
+        duration: f32,
+        cold_duration: f32,
+        freeze_duration: f32,
     },
 }
 
@@ -833,6 +869,76 @@ impl TowerActionDef {
                     tick_rate: *tick_rate,
                 }
             }
+            TowerAction::ImpactAura {
+                radius,
+                duration,
+                state,
+                state_duration,
+                strength,
+            } => {
+                let mut rad = *radius;
+                let mut dur = *duration;
+                let mut state_dur = *state_duration;
+                let mut str = *strength;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::ImpactAuraRadius => {
+                            rad += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::ImpactAuraDuration => {
+                            dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::StateDuration => {
+                            state_dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::StateStrength => {
+                            str += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::ImpactAura {
+                    radius: rad,
+                    duration: dur,
+                    state: *state,
+                    state_duration: state_dur,
+                    strength: str,
+                }
+            }
+            TowerAction::ImpactColdAura {
+                radius,
+                duration,
+                cold_duration,
+                freeze_duration,
+            } => {
+                let mut rad = *radius;
+                let mut dur = *duration;
+                let mut cold_dur = *cold_duration;
+                let mut freeze_dur = *freeze_duration;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::ImpactAuraRadius => {
+                            rad += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::ImpactAuraDuration => {
+                            dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::ColdDuration => {
+                            cold_dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::FreezeDuration => {
+                            freeze_dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::ImpactColdAura {
+                    radius: rad,
+                    duration: dur,
+                    cold_duration: cold_dur,
+                    freeze_duration: freeze_dur,
+                }
+            }
         }
     }
 }
@@ -1100,6 +1206,31 @@ fn extract_base_value(action: &TowerAction, target: ActionUpgradeTarget) -> f32 
             },
             ActionUpgradeTarget::FreezeDuration,
         ) => *freeze_duration,
+        // ImpactAura
+        (TowerAction::ImpactAura { radius, .. }, ActionUpgradeTarget::ImpactAuraRadius) => *radius,
+        (TowerAction::ImpactAura { duration, .. }, ActionUpgradeTarget::ImpactAuraDuration) => {
+            *duration
+        }
+        (TowerAction::ImpactAura { state_duration, .. }, ActionUpgradeTarget::StateDuration) => {
+            *state_duration
+        }
+        (TowerAction::ImpactAura { strength, .. }, ActionUpgradeTarget::StateStrength) => *strength,
+        // ImpactColdAura
+        (TowerAction::ImpactColdAura { radius, .. }, ActionUpgradeTarget::ImpactAuraRadius) => {
+            *radius
+        }
+        (TowerAction::ImpactColdAura { duration, .. }, ActionUpgradeTarget::ImpactAuraDuration) => {
+            *duration
+        }
+        (TowerAction::ImpactColdAura { cold_duration, .. }, ActionUpgradeTarget::ColdDuration) => {
+            *cold_duration
+        }
+        (
+            TowerAction::ImpactColdAura {
+                freeze_duration, ..
+            },
+            ActionUpgradeTarget::FreezeDuration,
+        ) => *freeze_duration,
         _ => 0.0,
     }
 }
@@ -1255,19 +1386,24 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     .build(),
             )
             .skill(
-                SkillBuilder::passive(1, "Aura Incendiaire")
-                    .description("Zone autour de la tour, applique Brule aux non-brules")
+                SkillBuilder::active(1, "Flamme Persistante")
+                    .description("Cree une zone de feu a l'impact qui brule les ennemis")
                     .icon("A")
                     .cost(75)
+                    .range(120.0, 10.0, 5)
+                    .attack_speed(0.5, 0.05, 5)
+                    .can_change_target()
                     .action_with_upgrades(
-                        TowerAction::AuraEffect {
-                            radius: 100.0,
+                        TowerAction::ImpactAura {
+                            radius: 60.0,
+                            duration: 3.0,
                             state: ElementalStateKind::Burned,
-                            duration: 4.0,
+                            state_duration: 4.0,
                             strength: 5.0,
                         },
                         vec![
-                            ("Rayon", ActionUpgradeTarget::AuraRadius, 15.0, 5),
+                            ("Rayon", ActionUpgradeTarget::ImpactAuraRadius, 10.0, 5),
+                            ("Duree", ActionUpgradeTarget::ImpactAuraDuration, 0.5, 5),
                             ("Brulure", ActionUpgradeTarget::StateStrength, 1.0, 5),
                         ],
                     )
@@ -1328,19 +1464,24 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     .build(),
             )
             .skill(
-                SkillBuilder::passive(1, "Maree Montante")
-                    .description("Zone autour de la tour, applique Trempe aux entrants")
+                SkillBuilder::active(1, "Flaque")
+                    .description("Cree une flaque a l'impact qui trempe les ennemis")
                     .icon("M")
                     .cost(80)
+                    .range(130.0, 10.0, 5)
+                    .attack_speed(0.6, 0.05, 5)
+                    .can_change_target()
                     .action_with_upgrades(
-                        TowerAction::AuraEffect {
-                            radius: 90.0,
+                        TowerAction::ImpactAura {
+                            radius: 55.0,
+                            duration: 3.0,
                             state: ElementalStateKind::Soaked,
-                            duration: 4.0,
+                            state_duration: 4.0,
                             strength: 0.6,
                         },
                         vec![
-                            ("Rayon", ActionUpgradeTarget::AuraRadius, 15.0, 5),
+                            ("Rayon", ActionUpgradeTarget::ImpactAuraRadius, 10.0, 5),
+                            ("Duree", ActionUpgradeTarget::ImpactAuraDuration, 0.5, 5),
                             ("Ralenti", ActionUpgradeTarget::StateStrength, -0.05, 5),
                         ],
                     )
@@ -1422,19 +1563,24 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     .build(),
             )
             .skill(
-                SkillBuilder::passive(1, "Onde Tellurique")
-                    .description("Zone (1.5/s), applique Sismique aux entrants")
+                SkillBuilder::active(1, "Fissure")
+                    .description("Cree une zone sismique a l'impact")
                     .icon("O")
                     .cost(85)
+                    .range(100.0, 10.0, 5)
+                    .attack_speed(0.5, 0.05, 5)
+                    .can_change_target()
                     .action_with_upgrades(
-                        TowerAction::AuraEffect {
-                            radius: 80.0,
+                        TowerAction::ImpactAura {
+                            radius: 50.0,
+                            duration: 2.5,
                             state: ElementalStateKind::Seismic,
-                            duration: 4.0,
+                            state_duration: 4.0,
                             strength: 0.15, // 0.15s stun per hit
                         },
                         vec![
-                            ("Rayon", ActionUpgradeTarget::AuraRadius, 12.0, 5),
+                            ("Rayon", ActionUpgradeTarget::ImpactAuraRadius, 8.0, 5),
+                            ("Duree", ActionUpgradeTarget::ImpactAuraDuration, 0.4, 5),
                             ("Stun", ActionUpgradeTarget::StateStrength, 0.03, 5),
                         ],
                     )
@@ -1644,18 +1790,23 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     .build(),
             )
             .skill(
-                SkillBuilder::passive(1, "Vent Gele")
-                    .description("Aura de froid autour de la tour")
+                SkillBuilder::active(1, "Givre")
+                    .description("Cree une zone de givre a l'impact")
                     .icon("V")
                     .cost(80)
+                    .range(110.0, 10.0, 5)
+                    .attack_speed(0.5, 0.05, 5)
+                    .can_change_target()
                     .action_with_upgrades(
-                        TowerAction::ColdAura {
-                            radius: 80.0,
+                        TowerAction::ImpactColdAura {
+                            radius: 55.0,
+                            duration: 3.0,
                             cold_duration: 4.0,
                             freeze_duration: 2.0,
                         },
                         vec![
-                            ("Rayon", ActionUpgradeTarget::AuraRadius, 12.0, 5),
+                            ("Rayon", ActionUpgradeTarget::ImpactAuraRadius, 10.0, 5),
+                            ("Duree", ActionUpgradeTarget::ImpactAuraDuration, 0.5, 5),
                             ("Gel", ActionUpgradeTarget::FreezeDuration, 0.3, 5),
                         ],
                     )

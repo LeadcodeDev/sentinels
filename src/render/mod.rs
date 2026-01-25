@@ -25,6 +25,7 @@ pub fn render_game(
     let projectiles = game.projectiles.clone();
     let aoe_splashes = game.aoe_splashes.clone();
     let gold_pulses = game.gold_pulses.clone();
+    let impact_auras = game.impact_auras.clone();
     let elapsed = game.elapsed;
     let selected_tower = game.selected_tower;
 
@@ -96,6 +97,11 @@ pub fn render_game(
             // Draw AoE splash effects
             for splash in &aoe_splashes {
                 draw_aoe_splash(window, center, splash);
+            }
+
+            // Draw impact auras (temporary zones at projectile impact locations)
+            for aura in &impact_auras {
+                draw_impact_aura(window, center, aura, elapsed);
             }
 
             // Draw player

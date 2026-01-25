@@ -546,6 +546,43 @@ pub fn draw_aoe_splash(window: &mut Window, center: Point<Pixels>, splash: &AoeS
     }
 }
 
+/// Dessine une aura d'impact temporaire (zone créée à l'impact d'un projectile)
+pub fn draw_impact_aura(
+    window: &mut Window,
+    center: Point<Pixels>,
+    aura: &crate::game::ImpactAura,
+    elapsed: f32,
+) {
+    let screen_pos = point(
+        center.x + px(aura.position.x),
+        center.y + px(aura.position.y),
+    );
+
+    let (h, s, l) = aura.color;
+
+    // Fade out as remaining decreases (more transparent at the end)
+    let alpha_base = (aura.remaining / 3.0).min(1.0) * 0.15;
+
+    // Pulsing effect
+    let pulse = 0.8 + 0.2 * (elapsed * 3.0).sin();
+
+    // Draw filled circle (very subtle)
+    draw_circle(
+        window,
+        screen_pos,
+        aura.radius * pulse,
+        Hsla {
+            h,
+            s,
+            l,
+            a: alpha_base,
+        },
+    );
+
+    // Draw orbiting particles (similar to tower auras but fewer)
+    draw_orbiting_particles(window, screen_pos, aura.radius, h, s, l, elapsed, 0);
+}
+
 pub fn draw_shield(window: &mut Window, center: Point<Pixels>, shield: &Shield) {
     let ratio = shield.hp / shield.max_hp;
 

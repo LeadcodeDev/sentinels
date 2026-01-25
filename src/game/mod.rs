@@ -7,7 +7,7 @@ pub mod wave;
 
 use crate::data::SaveData;
 use crate::data::tower_defs::{
-    EffectTarget, ResolvedAction, ResolvedDamage, ResolvedEffect, TowerKind, get_def,
+    EffectTarget, ResolvedAction, ResolvedDamage, ResolvedEffect, TowerKind,
 };
 use elemental::TowerElement;
 use enemy::Enemy;
@@ -129,6 +129,35 @@ pub struct AoeSplash {
     pub max_lifetime: f32,
 }
 
+/// Aura d'impact temporaire - applique un effet élémentaire dans une zone
+#[derive(Clone)]
+pub struct ImpactAura {
+    pub position: Point2D,
+    pub radius: f32,
+    pub color: (f32, f32, f32), // h, s, l
+    pub remaining: f32,         // Durée restante
+    pub tick_cooldown: f32,     // Cooldown entre applications
+    pub aura_type: ImpactAuraType,
+    pub element: TowerElement,
+}
+
+use enemy::ElementalStateKind;
+
+#[derive(Clone)]
+pub enum ImpactAuraType {
+    /// Applique un état élémentaire standard (Burned, Soaked, Seismic)
+    Elemental {
+        state: ElementalStateKind,
+        duration: f32,
+        strength: f32,
+    },
+    /// Applique l'état Froid (peut déclencher Gelé si Trempé)
+    Cold {
+        cold_duration: f32,
+        freeze_duration: f32,
+    },
+}
+
 #[derive(Clone)]
 pub struct GoldPulse {
     pub position: Point2D,
@@ -155,6 +184,7 @@ pub struct GameState {
     pub projectiles: Vec<Projectile>,
     pub aoe_splashes: Vec<AoeSplash>,
     pub gold_pulses: Vec<GoldPulse>,
+    pub impact_auras: Vec<ImpactAura>,
     pub wave_manager: WaveManager,
     pub economy: Economy,
     pub phase: GamePhase,
@@ -182,6 +212,7 @@ impl GameState {
             projectiles: Vec::new(),
             aoe_splashes: Vec::new(),
             gold_pulses: Vec::new(),
+            impact_auras: Vec::new(),
             wave_manager: WaveManager::new(),
             economy: Economy {
                 gold: 500 + bonus_gold,
@@ -352,7 +383,10 @@ impl GameState {
                             | ResolvedAction::RandomBombard { .. }
                             | ResolvedAction::ColdAura { .. }
                             | ResolvedAction::Glaciation { .. } => 0,
-                            ResolvedAction::Annihilate { .. } => 1,
+                            // Impact auras need a projectile to be fired
+                            ResolvedAction::ImpactAura { .. }
+                            | ResolvedAction::ImpactColdAura { .. }
+                            | ResolvedAction::Annihilate { .. } => 1,
                         })
                         .max()
                         .unwrap_or(1);
@@ -731,7 +765,7 @@ impl GameState {
 
                     // Apply Cold: damage + cold state with AoE
                     ResolvedAction::ApplyCold {
-                        target,
+                        target: _,
                         damage,
                         cold_duration,
                         freeze_duration,
@@ -772,6 +806,50 @@ impl GameState {
                     ResolvedAction::LifeSteal { .. } => {}
                     ResolvedAction::ColdAura { .. } => {}
                     ResolvedAction::Glaciation { .. } => {}
+
+                    // Impact auras - create temporary aura at projectile impact location
+                    ResolvedAction::ImpactAura {
+                        radius,
+                        duration,
+                        state,
+                        state_duration,
+                        strength,
+                    } => {
+                        let color = element.color();
+                        self.impact_auras.push(ImpactAura {
+                            position: pos.clone(),
+                            radius: *radius,
+                            color: (color.h, color.s, color.l),
+                            remaining: *duration,
+                            tick_cooldown: 0.0,
+                            aura_type: ImpactAuraType::Elemental {
+                                state: *state,
+                                duration: *state_duration,
+                                strength: *strength,
+                            },
+                            element,
+                        });
+                    }
+                    ResolvedAction::ImpactColdAura {
+                        radius,
+                        duration,
+                        cold_duration,
+                        freeze_duration,
+                    } => {
+                        let _color = element.color();
+                        self.impact_auras.push(ImpactAura {
+                            position: pos.clone(),
+                            radius: *radius,
+                            color: (0.55, 0.7, 0.6), // Bleu clair pour froid
+                            remaining: *duration,
+                            tick_cooldown: 0.0,
+                            aura_type: ImpactAuraType::Cold {
+                                cold_duration: *cold_duration,
+                                freeze_duration: *freeze_duration,
+                            },
+                            element,
+                        });
+                    }
                 }
             }
         }
@@ -800,7 +878,7 @@ impl GameState {
             let element = self.towers[tower_idx].element;
             let active_skill_idx = self.towers[tower_idx].active_skill_index;
 
-            for (action_idx, action) in resolved.iter().enumerate() {
+            for (_action_idx, action) in resolved.iter().enumerate() {
                 match action {
                     ResolvedAction::AuraEffect {
                         radius,
@@ -899,6 +977,40 @@ impl GameState {
         if player_heal > 0.0 {
             self.player.hp = (self.player.hp + player_heal).min(self.player.max_hp);
         }
+
+        // 7d. Process impact auras - tick and apply effects
+        const IMPACT_AURA_TICK_RATE: f32 = 1.0; // Apply effect once per second
+        for aura in &mut self.impact_auras {
+            aura.remaining -= dt;
+            aura.tick_cooldown -= dt;
+
+            // Apply effect when cooldown is ready
+            if aura.tick_cooldown <= 0.0 {
+                aura.tick_cooldown = IMPACT_AURA_TICK_RATE;
+
+                for enemy in &mut self.enemies {
+                    if aura.position.distance_to(&enemy.position) <= aura.radius {
+                        match &aura.aura_type {
+                            ImpactAuraType::Elemental {
+                                state,
+                                duration,
+                                strength,
+                            } => {
+                                apply_elemental_state(enemy, *state, *duration, *strength);
+                            }
+                            ImpactAuraType::Cold {
+                                cold_duration,
+                                freeze_duration,
+                            } => {
+                                enemy.apply_cold(*freeze_duration, *cold_duration);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Remove expired impact auras
+        self.impact_auras.retain(|a| a.remaining > 0.0);
 
         // 8. Remove dead enemies + award gold + random pepite drops
         self.enemies.retain(|e| {
