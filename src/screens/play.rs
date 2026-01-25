@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants};
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{Sizable, Size, h_flex, v_flex};
 use std::time::{Duration, Instant};
 
 use crate::data::SaveData;
@@ -10,8 +10,6 @@ use crate::game::Point2D;
 use crate::game::{GamePhase, GameState};
 use crate::render::{self, PlacementPreview};
 use crate::ui::hud;
-
-const SPEED_BAR_HEIGHT: f32 = 40.0;
 
 pub enum PlayScreenEvent {
     ReturnToLobby,
@@ -74,11 +72,11 @@ impl PlayScreen {
         let sidebar_w = hud::sidebar_width();
         let viewport = self.game_state.viewport_size;
         let canvas_width = viewport.0 - sidebar_w;
-        let canvas_height = viewport.1 - SPEED_BAR_HEIGHT;
+        let canvas_height = viewport.1;
         let center_x = canvas_width / 2.0;
         let center_y = canvas_height / 2.0;
         let game_x = f32::from(cursor.x) - center_x;
-        let game_y = f32::from(cursor.y) - SPEED_BAR_HEIGHT - center_y;
+        let game_y = f32::from(cursor.y) - center_y;
 
         if let Some(tower_idx) = self.game_state.move_mode {
             let tower = self.game_state.towers.get(tower_idx)?;
@@ -117,11 +115,11 @@ impl Render for PlayScreen {
             let sidebar_w = hud::sidebar_width();
             let viewport_size = this.game_state.viewport_size;
             let canvas_width = viewport_size.0 - sidebar_w;
-            let canvas_height = viewport_size.1 - SPEED_BAR_HEIGHT;
+            let canvas_height = viewport_size.1;
             let center_x = canvas_width / 2.0;
             let center_y = canvas_height / 2.0;
             let game_x = f32::from(event.position.x) - center_x;
-            let game_y = f32::from(event.position.y) - SPEED_BAR_HEIGHT - center_y;
+            let game_y = f32::from(event.position.y) - center_y;
 
             if let Some(tower_idx) = this.game_state.move_mode {
                 this.game_state.try_move_tower(tower_idx, game_x, game_y);
@@ -148,7 +146,7 @@ impl Render for PlayScreen {
         });
 
         let sidebar = hud::render_sidebar(&self.game_state, cx);
-        let speed_bar = render_speed_bar(&self.game_state, cx);
+        let speed_buttons = render_speed_buttons(&self.game_state, cx);
         let is_game_over = self.game_state.phase == GamePhase::GameOver;
         let score = self.game_state.economy.score;
         let wave = self.game_state.economy.wave_number;
@@ -166,19 +164,11 @@ impl Render for PlayScreen {
                             .flex_1()
                             .h_full()
                             .relative()
-                            .flex()
-                            .flex_col()
-                            .child(speed_bar)
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .w_full()
-                                    .relative()
-                                    .child(game_canvas)
-                                    .on_mouse_down(MouseButton::Left, left_click)
-                                    .on_mouse_down(MouseButton::Right, right_click)
-                                    .on_mouse_move(mouse_move),
-                            ),
+                            .child(game_canvas)
+                            .on_mouse_down(MouseButton::Left, left_click)
+                            .on_mouse_down(MouseButton::Right, right_click)
+                            .on_mouse_move(mouse_move)
+                            .child(speed_buttons),
                     )
                     .child(sidebar)
                     .on_key_down(key_down),
@@ -227,24 +217,18 @@ impl Render for PlayScreen {
     }
 }
 
-fn render_speed_bar(game: &GameState, cx: &mut Context<PlayScreen>) -> impl IntoElement + use<> {
+fn render_speed_buttons(
+    game: &GameState,
+    cx: &mut Context<PlayScreen>,
+) -> impl IntoElement + use<> {
     let current_speed = game.speed_multiplier as u32;
 
     h_flex()
-        .id("speed_bar")
-        .w_full()
-        .flex_shrink_0()
-        .justify_center()
-        .items_center()
-        .py_2()
-        .gap_2()
-        .bg(Hsla {
-            h: 0.0,
-            s: 0.0,
-            l: 0.05,
-            a: 0.8,
-        })
-        .child(div().text_xs().text_color(rgb(0x888888)).child("Vitesse:"))
+        .id("speed_buttons")
+        .absolute()
+        .bottom_3()
+        .left_3()
+        .gap_1()
         .child(speed_button("x1", 1, current_speed, cx))
         .child(speed_button("x2", 2, current_speed, cx))
         .child(speed_button("x3", 3, current_speed, cx))
@@ -332,6 +316,8 @@ fn speed_button(
                 .active(hover_color),
         )
         .label(label)
+        .compact()
+        .with_size(Size::XSmall)
         .on_click(cx.listener(move |screen, _, _window, _cx| {
             screen.game_state.speed_multiplier = speed as f32;
         }))
