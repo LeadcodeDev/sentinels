@@ -367,17 +367,74 @@ impl TowerBuilder {
     ) -> Self {
         let action_upgrades = upgrades
             .into_iter()
-            .map(|(name, target, bonus, max_level)| ActionUpgrade {
-                name,
-                prop: UpgradeableProp {
-                    base: 0.0,
-                    bonus_per_level: bonus,
-                    max_level,
-                    current_level: 0,
-                    cost_base: 30,
-                    cost_per_level: 25,
-                },
-                applies_to: target,
+            .map(|(name, target, bonus, max_level)| {
+                // Extract the base value from the action based on upgrade target
+                let base = match (&action, target) {
+                    (TowerAction::ApplyDamage { damage, .. }, ActionUpgradeTarget::Damage) => {
+                        match damage {
+                            DamageType::Fixed(v) | DamageType::PercentHp(v) => *v,
+                        }
+                    }
+                    (
+                        TowerAction::ApplyDamage { target: t, .. },
+                        ActionUpgradeTarget::AoeRadius,
+                    ) => {
+                        if let EffectTarget::Area(r) = t {
+                            *r
+                        } else {
+                            0.0
+                        }
+                    }
+                    (
+                        TowerAction::ApplyDamage { target: t, .. },
+                        ActionUpgradeTarget::MaxTargets,
+                    ) => {
+                        if let EffectTarget::Multi(n) = t {
+                            *n as f32
+                        } else {
+                            0.0
+                        }
+                    }
+                    (TowerAction::ApplyEffect { effect, .. }, ActionUpgradeTarget::EffectDps) => {
+                        if let EffectType::Burn { dps, .. } = effect {
+                            *dps
+                        } else {
+                            0.0
+                        }
+                    }
+                    (
+                        TowerAction::ApplyEffect { effect, .. },
+                        ActionUpgradeTarget::EffectDuration,
+                    ) => match effect {
+                        EffectType::Burn { duration, .. }
+                        | EffectType::Slow { duration, .. }
+                        | EffectType::Stun { duration } => *duration,
+                    },
+                    (TowerAction::ApplyEffect { effect, .. }, ActionUpgradeTarget::EffectRatio) => {
+                        if let EffectType::Slow { ratio, .. } = effect {
+                            *ratio
+                        } else {
+                            0.0
+                        }
+                    }
+                    (
+                        TowerAction::GoldGen { gold_per_second },
+                        ActionUpgradeTarget::GoldPerSecond,
+                    ) => *gold_per_second,
+                    _ => 0.0,
+                };
+                ActionUpgrade {
+                    name,
+                    prop: UpgradeableProp {
+                        base,
+                        bonus_per_level: bonus,
+                        max_level,
+                        current_level: 0,
+                        cost_base: 30,
+                        cost_per_level: 25,
+                    },
+                    applies_to: target,
+                }
             })
             .collect();
         self.actions.push(TowerActionDef {

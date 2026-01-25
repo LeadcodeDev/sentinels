@@ -56,13 +56,11 @@ impl Render for SentinelsApp {
                 Screen::Welcome => welcome::render(cx).into_any_element(),
                 Screen::Lobby => lobby::render(&self.save_data, cx).into_any_element(),
                 Screen::Shop => shop::render(&mut self.save_data, cx).into_any_element(),
-                Screen::Play => {
-                    if self.play_screen.is_none() {
-                        let save_data = self.save_data.clone();
-                        self.play_screen = Some(cx.new(|_cx| PlayScreen::new(&save_data)));
-                    }
-                    self.play_screen.clone().unwrap().into_any_element()
-                }
+                Screen::Play => self
+                    .play_screen
+                    .clone()
+                    .expect("PlayScreen should be created by navigate_to()")
+                    .into_any_element(),
             })
     }
 }
