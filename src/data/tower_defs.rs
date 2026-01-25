@@ -1220,19 +1220,6 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     )
                     .build(),
             )
-            .skill(
-                SkillBuilder::passive(2, "Vigilance")
-                    .description("Genere de l'or passivement")
-                    .icon("V")
-                    .cost(100)
-                    .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 1.0,
-                        },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.5, 5)],
-                    )
-                    .build(),
-            )
             .build(),
         // ===================================================================
         // INFERNO - Tour de feu (Brûlé)
@@ -1288,15 +1275,21 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     .build(),
             )
             .skill(
-                SkillBuilder::passive(2, "Brasier")
-                    .description("Genere de l'or grace a la forge")
+                SkillBuilder::active(2, "Brasier")
+                    .description("Inflige des degats de feu en zone autour de la cible")
                     .icon("B")
                     .cost(120)
+                    .range(100.0, 10.0, 5)
+                    .attack_speed(0.8, 0.1, 5)
                     .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 1.5,
+                        TowerAction::ApplyDamage {
+                            target: EffectTarget::Area(60.0),
+                            damage: DamageType::Fixed(15.0),
                         },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.75, 5)],
+                        vec![
+                            ("Degats", ActionUpgradeTarget::Damage, 3.0, 5),
+                            ("Rayon", ActionUpgradeTarget::AoeRadius, 10.0, 5),
+                        ],
                     )
                     .build(),
             )
@@ -1328,7 +1321,10 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                             duration: 4.0,
                             strength: 0.6, // 40% slow (1.0 - 0.6 = 0.4)
                         },
-                        vec![("Duree", ActionUpgradeTarget::StateDuration, 0.5, 5)],
+                        vec![
+                            ("Duree", ActionUpgradeTarget::StateDuration, 0.5, 5),
+                            ("Ralenti", ActionUpgradeTarget::StateStrength, -0.05, 5), // -5% vitesse par niveau
+                        ],
                     )
                     .build(),
             )
@@ -1344,20 +1340,10 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                             duration: 4.0,
                             strength: 0.6,
                         },
-                        vec![("Rayon", ActionUpgradeTarget::AuraRadius, 15.0, 5)],
-                    )
-                    .build(),
-            )
-            .skill(
-                SkillBuilder::passive(2, "Courant Marin")
-                    .description("Genere de l'or")
-                    .icon("C")
-                    .cost(90)
-                    .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 1.0,
-                        },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.5, 5)],
+                        vec![
+                            ("Rayon", ActionUpgradeTarget::AuraRadius, 15.0, 5),
+                            ("Ralenti", ActionUpgradeTarget::StateStrength, -0.05, 5),
+                        ],
                     )
                     .build(),
             )
@@ -1403,19 +1389,6 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                             damage: DamageType::Fixed(10.0),
                         },
                         vec![("Degats", ActionUpgradeTarget::Damage, 2.0, 5)],
-                    )
-                    .build(),
-            )
-            .skill(
-                SkillBuilder::passive(2, "Generateur")
-                    .description("Produit de l'energie convertie en or")
-                    .icon("G")
-                    .cost(110)
-                    .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 1.8,
-                        },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.8, 5)],
                     )
                     .build(),
             )
@@ -1468,19 +1441,6 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     )
                     .build(),
             )
-            .skill(
-                SkillBuilder::passive(2, "Resonance")
-                    .description("Genere de l'or")
-                    .icon("R")
-                    .cost(100)
-                    .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 1.2,
-                        },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.6, 5)],
-                    )
-                    .build(),
-            )
             .build(),
         // ===================================================================
         // SNIPER - Tour longue portée
@@ -1524,19 +1484,6 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                             damage: DamageType::Fixed(15.0),
                         },
                         vec![("Degats", ActionUpgradeTarget::Damage, 3.0, 5)],
-                    )
-                    .build(),
-            )
-            .skill(
-                SkillBuilder::passive(2, "Observation")
-                    .description("Repere des ressources cachees")
-                    .icon("O")
-                    .cost(80)
-                    .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 1.0,
-                        },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.5, 5)],
                     )
                     .build(),
             )
@@ -1751,26 +1698,6 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     .description("Notifie quand le bouclier est bas")
                     .icon("!")
                     .cost(0)
-                    .build(),
-            )
-            .skill(
-                SkillBuilder::passive(1, "Alerte Vague")
-                    .description("Notifie au debut de chaque vague")
-                    .icon("W")
-                    .cost(25)
-                    .build(),
-            )
-            .skill(
-                SkillBuilder::passive(2, "Surveillance")
-                    .description("Genere un peu d'or")
-                    .icon("S")
-                    .cost(50)
-                    .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 0.5,
-                        },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.25, 5)],
-                    )
                     .build(),
             )
             .build(),

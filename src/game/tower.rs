@@ -219,22 +219,14 @@ impl Tower {
         // Créer l'état runtime
         let runtime_state = SkillState::create_runtime_state(skill_def);
 
-        // Pour les skills passives, elles sont directement "Active"
-        // Pour les skills actives, elles sont "Purchased" (doivent être activées)
-        match skill_def.skill_type {
-            SkillType::Passive => {
-                self.skills[skill_idx] = SkillState::Active(runtime_state);
-            }
-            SkillType::Active => {
-                // Si c'est la première skill Active achetée, l'activer automatiquement
-                let has_active_skill = self.active_skill_index.is_some();
-                if !has_active_skill {
-                    self.skills[skill_idx] = SkillState::Active(runtime_state);
-                    self.active_skill_index = Some(skill_idx);
-                } else {
-                    self.skills[skill_idx] = SkillState::Purchased(runtime_state);
-                }
-            }
+        // Si c'est la première skill achetée, l'activer automatiquement
+        // Sinon, la mettre en état Purchased
+        let has_active_skill = self.active_skill_index.is_some();
+        if !has_active_skill {
+            self.skills[skill_idx] = SkillState::Active(runtime_state);
+            self.active_skill_index = Some(skill_idx);
+        } else {
+            self.skills[skill_idx] = SkillState::Purchased(runtime_state);
         }
 
         true
@@ -249,17 +241,10 @@ impl Tower {
         Some(def.skills[skill_idx].purchase_cost)
     }
 
-    /// Active une compétence Active (désactive la précédente)
+    /// Active une compétence (désactive la précédente)
+    /// Fonctionne pour tous les types de skills (Active et Passive)
     pub fn activate_skill(&mut self, skill_idx: usize) -> bool {
         if skill_idx >= 3 {
-            return false;
-        }
-
-        let def = get_def(self.kind);
-        let skill_def = &def.skills[skill_idx];
-
-        // Seulement les skills Active peuvent être activées/désactivées
-        if skill_def.skill_type != SkillType::Active {
             return false;
         }
 
@@ -273,7 +258,7 @@ impl Tower {
             return true;
         }
 
-        // Désactiver la skill Active actuelle (si elle existe)
+        // Désactiver la skill actuelle (si elle existe)
         if let Some(current_idx) = self.active_skill_index {
             if current_idx != skill_idx {
                 // Passer de Active à Purchased
@@ -485,6 +470,36 @@ impl Tower {
         self.get_skill_upgrades(active_idx)
     }
 
+    /// Retourne les upgrades de toutes les skills achetées, groupées par skill
+    /// Retourne: Vec<(skill_idx, skill_name, is_active, upgrades)>
+    pub fn get_all_purchased_skill_upgrades(
+        &self,
+    ) -> Vec<(
+        usize,
+        &'static str,
+        bool,
+        Vec<(SkillUpgradeId, &'static str, &UpgradeableProp)>,
+    )> {
+        let def = get_def(self.kind);
+        let mut result = Vec::new();
+
+        for (skill_idx, skill_state) in self.skills.iter().enumerate() {
+            // Seulement les skills achetées (Purchased ou Active)
+            if !skill_state.is_purchased() {
+                continue;
+            }
+
+            let skill_def = &def.skills[skill_idx];
+            let is_active = skill_state.is_active();
+            let upgrades = self.get_skill_upgrades(skill_idx);
+
+            // Inclure même si pas d'upgrades pour montrer le nom de la skill
+            result.push((skill_idx, skill_def.name, is_active, upgrades));
+        }
+
+        result
+    }
+
     /// Retourne les upgrades pour une skill spécifique
     pub fn get_skill_upgrades(
         &self,
@@ -596,6 +611,15 @@ impl Tower {
     pub fn upgrade_cost(&self, upgrade_id: SkillUpgradeId) -> Option<u32> {
         let active_idx = self.active_skill_index?;
         self.skill_upgrade_cost(active_idx, upgrade_id)
+    }
+
+    /// Alias pour skill_upgrade_cost
+    pub fn upgrade_cost_for_skill(
+        &self,
+        skill_idx: usize,
+        upgrade_id: SkillUpgradeId,
+    ) -> Option<u32> {
+        self.skill_upgrade_cost(skill_idx, upgrade_id)
     }
 
     /// Retourne le coût d'un upgrade sur une skill spécifique

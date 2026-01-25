@@ -1031,6 +1031,26 @@ impl GameState {
         self.towers[tower_idx].apply_skill_upgrade(upgrade_id)
     }
 
+    pub fn upgrade_tower_skill(
+        &mut self,
+        tower_idx: usize,
+        skill_idx: usize,
+        upgrade_id: tower::SkillUpgradeId,
+    ) -> bool {
+        if tower_idx >= self.towers.len() {
+            return false;
+        }
+        let cost = match self.towers[tower_idx].upgrade_cost_for_skill(skill_idx, upgrade_id) {
+            Some(c) => c,
+            None => return false,
+        };
+        if self.economy.gold < cost {
+            return false;
+        }
+        self.economy.gold -= cost;
+        self.towers[tower_idx].apply_upgrade_to_skill(skill_idx, upgrade_id)
+    }
+
     pub fn purchase_skill(&mut self, tower_idx: usize, skill_idx: usize) -> bool {
         if tower_idx >= self.towers.len() {
             return false;

@@ -332,8 +332,16 @@ fn selected_tower_section(
         })
         .collect();
 
-    // Build stat rows: each stat shows its current value, and if upgradeable, a button with bonus
-    // Skip stats for towers with notification settings (Alarme) as they don't attack
+    // Build stat rows for the active skill only
+    // Now only one skill is active at a time (whether Active or Passive type)
+    let active_skill_name = tower
+        .active_skill_index
+        .map(|idx| {
+            let def = get_def(tower.kind);
+            def.skills[idx].name
+        })
+        .unwrap_or("");
+
     let upgrades = if has_notification_settings {
         Vec::new()
     } else {
@@ -341,6 +349,18 @@ fn selected_tower_section(
     };
 
     let mut stat_elements: Vec<AnyElement> = Vec::new();
+
+    // Show active skill name
+    if !active_skill_name.is_empty() {
+        stat_elements.push(
+            div()
+                .text_xs()
+                .text_color(rgb(0x88cc88))
+                .child(format!("Active: {}", active_skill_name))
+                .into_any_element(),
+        );
+    }
+
     for (upgrade_id, uname, prop) in &upgrades {
         let current_value = prop.value();
         let is_maxed = !prop.can_upgrade();
