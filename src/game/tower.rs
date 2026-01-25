@@ -1,6 +1,8 @@
 use super::Point2D;
 use super::elemental::TowerElement;
-use crate::data::tower_defs::{ResolvedAction, TowerKind, UpgradeableProp, get_def};
+use crate::data::tower_defs::{
+    ResolvedAction, TargetPriority, TowerKind, UpgradeableProp, get_def,
+};
 
 #[derive(Clone, Default)]
 pub struct NotificationSettings {
@@ -23,6 +25,8 @@ pub struct Tower {
     pub radius: f32,
     pub gold_accumulator: f32,
     pub notification_settings: Option<NotificationSettings>,
+    /// Priorité de ciblage (Closest par défaut)
+    pub target_priority: TargetPriority,
 }
 
 #[derive(Clone)]
@@ -80,7 +84,13 @@ impl Tower {
             radius: 14.0,
             gold_accumulator: 0.0,
             notification_settings,
+            target_priority: TargetPriority::default(),
         }
+    }
+
+    /// Change la priorité de ciblage (cycle vers la suivante)
+    pub fn cycle_target_priority(&mut self) {
+        self.target_priority = self.target_priority.next();
     }
 
     pub fn attack_range(&self) -> f32 {

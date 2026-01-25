@@ -269,6 +269,26 @@ fn selected_tower_section(
         stat_elements.push(row.into_any_element());
     }
 
+    // Target priority button (only for towers that attack)
+    let target_priority = tower.target_priority;
+    let priority_btn = if !has_notification_settings && tower.attack_speed.max_level > 0 {
+        Some(
+            Button::new("sidebar_target_priority")
+                .label(format!("Cible: {}", target_priority.display_name()))
+                .compact()
+                .with_size(Size::Small)
+                .on_click(cx.listener(move |screen, _, _window, _cx| {
+                    if let Some(idx) = screen.game_state.selected_tower {
+                        if let Some(tower) = screen.game_state.towers.get_mut(idx) {
+                            tower.cycle_target_priority();
+                        }
+                    }
+                })),
+        )
+    } else {
+        None
+    };
+
     let move_cost = game.move_cost(tower_idx);
     let can_move = gold >= move_cost;
     let move_btn = Button::new("sidebar_move_tower")
@@ -381,6 +401,8 @@ fn selected_tower_section(
             .child(div().text_sm().text_color(color).child(name))
             // Stats with inline upgrades
             .children(stat_elements)
+            // Target priority button (if tower attacks)
+            .when_some(priority_btn, |this, btn| this.child(btn))
             // Notification settings (if available)
             .when_some(notification_section, |this, section| this.child(section))
             // Move

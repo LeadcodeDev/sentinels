@@ -323,7 +323,10 @@ impl GameState {
             if self.towers[i].attack_cooldown <= 0.0 {
                 let tower_pos = self.towers[i].position.clone();
                 let tower_range = self.towers[i].attack_range();
-                if let Some(_) = find_nearest_in_range(&tower_pos, tower_range, &self.enemies) {
+                let tower_priority = self.towers[i].target_priority;
+                if let Some(_) =
+                    find_target_in_range(&tower_pos, tower_range, &self.enemies, tower_priority)
+                {
                     let tower = &self.towers[i];
                     let resolved = tower.resolved_actions();
                     let element = tower.element;
@@ -345,12 +348,13 @@ impl GameState {
                         .max()
                         .unwrap_or(1);
 
-                    // Find targets in range
-                    let target_indices = find_n_nearest_in_range(
+                    // Find targets in range using tower's priority
+                    let target_indices = find_n_targets_in_range(
                         &tower_pos,
                         tower_range,
                         max_targets,
                         &self.enemies,
+                        tower_priority,
                     );
 
                     for t_idx in target_indices {
@@ -857,26 +861,88 @@ fn apply_effect_to_enemy(enemy: &mut Enemy, effect: &ResolvedEffect) {
     }
 }
 
+use crate::data::tower_defs::TargetPriority;
+
 fn find_nearest_in_range(pos: &Point2D, range: f32, enemies: &[Enemy]) -> Option<usize> {
-    enemies
+    find_target_in_range(pos, range, enemies, TargetPriority::Closest)
+}
+
+fn find_target_in_range(
+    pos: &Point2D,
+    range: f32,
+    enemies: &[Enemy],
+    priority: TargetPriority,
+) -> Option<usize> {
+    let in_range: Vec<(usize, &Enemy)> = enemies
         .iter()
         .enumerate()
         .filter(|(_, e)| pos.distance_to(&e.position) <= range)
-        .min_by(|(_, a), (_, b)| {
-            pos.distance_to(&a.position)
-                .partial_cmp(&pos.distance_to(&b.position))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|(idx, _)| idx)
+        .collect();
+
+    if in_range.is_empty() {
+        return None;
+    }
+
+    match priority {
+        TargetPriority::Closest => in_range
+            .into_iter()
+            .min_by(|(_, a), (_, b)| {
+                pos.distance_to(&a.position)
+                    .partial_cmp(&pos.distance_to(&b.position))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(idx, _)| idx),
+        TargetPriority::Farthest => in_range
+            .into_iter()
+            .max_by(|(_, a), (_, b)| {
+                pos.distance_to(&a.position)
+                    .partial_cmp(&pos.distance_to(&b.position))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(idx, _)| idx),
+        TargetPriority::HighestHp => in_range
+            .into_iter()
+            .max_by(|(_, a), (_, b)| a.hp.partial_cmp(&b.hp).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(idx, _)| idx),
+        TargetPriority::LowestHp => in_range
+            .into_iter()
+            .min_by(|(_, a), (_, b)| a.hp.partial_cmp(&b.hp).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(idx, _)| idx),
+    }
+}
+
+fn find_n_targets_in_range(
+    pos: &Point2D,
+    range: f32,
+    n: usize,
+    enemies: &[Enemy],
+    priority: TargetPriority,
+) -> Vec<usize> {
+    let mut indexed: Vec<(usize, f32, f32)> = enemies
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| pos.distance_to(&e.position) <= range)
+        .map(|(i, e)| (i, pos.distance_to(&e.position), e.hp))
+        .collect();
+
+    match priority {
+        TargetPriority::Closest => {
+            indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
+        TargetPriority::Farthest => {
+            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
+        TargetPriority::HighestHp => {
+            indexed.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        }
+        TargetPriority::LowestHp => {
+            indexed.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        }
+    }
+
+    indexed.into_iter().take(n).map(|(i, _, _)| i).collect()
 }
 
 fn find_n_nearest_in_range(pos: &Point2D, range: f32, n: usize, enemies: &[Enemy]) -> Vec<usize> {
-    let mut indexed: Vec<(usize, f32)> = enemies
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| pos.distance_to(&e.position) <= range)
-        .map(|(i, e)| (i, pos.distance_to(&e.position)))
-        .collect();
-    indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-    indexed.into_iter().take(n).map(|(i, _)| i).collect()
+    find_n_targets_in_range(pos, range, n, enemies, TargetPriority::Closest)
 }
