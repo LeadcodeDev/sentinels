@@ -33,62 +33,65 @@ impl ShopUpgradeDef {
     }
 }
 
+// Upgrades permanents basés sur la progression D&D
+// Les bonus sont calibrés pour une progression sur ~20 vagues
+// Coûts ajustés pour un rythme d'acquisition cohérent
 pub const SHOP_UPGRADES: &[ShopUpgradeDef] = &[
     ShopUpgradeDef {
         id: "bonus_gold",
         name: "Or de depart",
-        description: "+50 or au debut de chaque partie",
+        description: "+40 or au debut de chaque partie", // Réduit de 50 à 40
         max_level: 10,
-        base_cost: 100,
-        cost_per_level: 50,
+        base_cost: 80,      // Réduit de 100 (plus accessible)
+        cost_per_level: 40, // Réduit de 50
     },
     ShopUpgradeDef {
         id: "bonus_damage",
         name: "Degats du joueur",
-        description: "+5% degats de base du joueur",
+        description: "+8% degats de base du joueur", // Augmenté de 5% à 8%
         max_level: 10,
-        base_cost: 150,
-        cost_per_level: 75,
+        base_cost: 120,     // Réduit de 150
+        cost_per_level: 60, // Réduit de 75
     },
     ShopUpgradeDef {
         id: "bonus_range",
         name: "Portee du joueur",
-        description: "+10 portee d'attaque du joueur",
+        description: "+8 portee d'attaque du joueur", // Réduit de 10 à 8
         max_level: 5,
-        base_cost: 200,
-        cost_per_level: 100,
+        base_cost: 150,     // Réduit de 200
+        cost_per_level: 80, // Réduit de 100
     },
     ShopUpgradeDef {
         id: "bonus_hp",
         name: "Points de vie",
-        description: "+20 PV max du joueur",
+        description: "+15 PV max du joueur", // Réduit de 20 à 15
         max_level: 10,
-        base_cost: 100,
-        cost_per_level: 50,
+        base_cost: 80,      // Réduit de 100
+        cost_per_level: 40, // Réduit de 50
     },
     ShopUpgradeDef {
         id: "bonus_gold_earn",
         name: "Or gagne",
-        description: "+10% or gagne par ennemi",
+        description: "+8% or gagne par ennemi", // Réduit de 10% à 8%
         max_level: 5,
-        base_cost: 250,
-        cost_per_level: 125,
+        base_cost: 200,      // Réduit de 250
+        cost_per_level: 100, // Réduit de 125
     },
     ShopUpgradeDef {
         id: "shield",
         name: "Bouclier d'energie",
-        description: "Bloque les ennemis a distance, +50 PV par niveau",
+        description: "Bloque les ennemis a distance, +40 PV par niveau", // Réduit de 50 à 40
         max_level: 5,
         base_cost: 100,
-        cost_per_level: 200,
+        cost_per_level: 150, // Réduit de 200
     },
     ShopUpgradeDef {
         id: "tower_slots",
         name: "Slots de tourelles",
         description: "+1 emplacement de tourelle par niveau",
         max_level: 10,
-        base_cost: 150,
-        cost_per_level: 100,
+        base_cost: 120,     // Réduit de 150
+        cost_per_level: 80, // Réduit de 100
     },
 ];
 

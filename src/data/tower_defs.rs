@@ -475,137 +475,153 @@ impl TowerBuilder {
 
 // --- Tower definitions ---
 
+// Stats des tourelles basées sur les principes D&D DPR (Damage Per Round)
+// Chaque tour a un rôle distinct inspiré des classes/sorts D&D
 pub fn all_tower_defs() -> Vec<TowerDef> {
     vec![
+        // SENTINELLE - Fighter: Baseline fiable, polyvalente
+        // DPS théorique: 10 × 1.0 = 10 DPS
         TowerBuilder::new(TowerKind::Sentinelle, "Sentinelle", TowerElement::Neutral)
             .description("Tour basique equilibree")
             .cost(50)
-            .range(140.0, 15.0, 5)
-            .attack_speed(1.0, 0.15, 5)
+            .range(140.0, 12.0, 5) // Portée standard, upgrade +12/lvl
+            .attack_speed(1.0, 0.1, 5) // AS standard, upgrade +0.1/lvl
             .action_with_upgrades(
                 TowerAction::ApplyDamage {
                     target: EffectTarget::Single,
-                    damage: DamageType::Fixed(8.0),
+                    damage: DamageType::Fixed(10.0), // Buffé de 8 à 10
                 },
-                vec![("Degats", ActionUpgradeTarget::Damage, 3.0, 5)],
+                vec![("Degats", ActionUpgradeTarget::Damage, 2.0, 5)], // +2/lvl (était +3)
             )
             .build(),
+        // INFERNO - Evocation Wizard: Contrôle de zone + DoT
+        // DPS théorique: 8 × 0.8 + 4 burn = 10.4 DPS en AoE
         TowerBuilder::new(TowerKind::Inferno, "Tour Inferno", TowerElement::Fire)
             .description("Degats de zone + brulure")
-            .cost(80)
-            .range(110.0, 15.0, 5)
-            .attack_speed(0.8, 0.15, 5)
+            .cost(90) // Augmenté de 80 à 90
+            .range(110.0, 12.0, 5)
+            .attack_speed(0.8, 0.1, 5)
             .action_with_upgrades(
                 TowerAction::ApplyDamage {
                     target: EffectTarget::Area(45.0),
-                    damage: DamageType::Fixed(10.0),
+                    damage: DamageType::Fixed(8.0), // Réduit de 10 à 8 (compensé par burn)
                 },
                 vec![
-                    ("Degats", ActionUpgradeTarget::Damage, 3.0, 5),
-                    ("Zone", ActionUpgradeTarget::AoeRadius, 10.0, 5),
+                    ("Degats", ActionUpgradeTarget::Damage, 2.0, 5),
+                    ("Zone", ActionUpgradeTarget::AoeRadius, 8.0, 5), // Réduit de 10 à 8
                 ],
             )
             .action_with_upgrades(
                 TowerAction::ApplyEffect {
                     target: EffectTarget::Area(45.0),
                     effect: EffectType::Burn {
-                        dps: 3.0,
-                        duration: 2.0,
+                        dps: 4.0,      // Augmenté de 3 à 4
+                        duration: 2.5, // Augmenté de 2 à 2.5
                     },
                 },
                 vec![
-                    ("Brulure DPS", ActionUpgradeTarget::EffectDps, 2.0, 5),
-                    ("Brulure duree", ActionUpgradeTarget::EffectDuration, 0.5, 5),
+                    ("Brulure DPS", ActionUpgradeTarget::EffectDps, 1.5, 5),
+                    ("Brulure duree", ActionUpgradeTarget::EffectDuration, 0.4, 5),
                 ],
             )
             .build(),
+        // GLACIER - Enchantment Wizard: Crowd Control spécialiste
+        // DPS théorique: 7 × 0.8 = 5.6 DPS + slow (valeur utilitaire)
         TowerBuilder::new(TowerKind::Glacier, "Tour Glacier", TowerElement::Water)
             .description("Ralentit les ennemis")
-            .cost(65)
-            .range(135.0, 15.0, 5)
-            .attack_speed(0.8, 0.15, 5)
+            .cost(70) // Augmenté de 65 à 70
+            .range(130.0, 12.0, 5)
+            .attack_speed(0.8, 0.1, 5)
             .action_with_upgrades(
                 TowerAction::ApplyDamage {
                     target: EffectTarget::Single,
-                    damage: DamageType::Fixed(5.0),
+                    damage: DamageType::Fixed(7.0), // Buffé de 5 à 7
                 },
-                vec![("Degats", ActionUpgradeTarget::Damage, 3.0, 5)],
+                vec![("Degats", ActionUpgradeTarget::Damage, 2.0, 5)],
             )
             .action_with_upgrades(
                 TowerAction::ApplyEffect {
                     target: EffectTarget::Single,
                     effect: EffectType::Slow {
-                        ratio: 0.5,
+                        ratio: 0.45, // Réduit de 0.5 à 0.45 (moins oppressif)
                         duration: 2.0,
                     },
                 },
                 vec![
-                    ("Ralentissement", ActionUpgradeTarget::EffectRatio, 0.05, 5),
-                    ("Duree slow", ActionUpgradeTarget::EffectDuration, 0.3, 5),
+                    ("Ralentissement", ActionUpgradeTarget::EffectRatio, 0.03, 5), // Réduit de 0.05
+                    ("Duree slow", ActionUpgradeTarget::EffectDuration, 0.25, 5),
                 ],
             )
             .build(),
+        // TESLA - Chain Lightning: Multi-cibles rapide
+        // DPS théorique: 6 × 3 cibles × 1.2 = 21.6 DPS répartis
         TowerBuilder::new(TowerKind::Tesla, "Tour Tesla", TowerElement::Electric)
-            .description("Attaque rapide electrique")
-            .cost(90)
-            .range(125.0, 15.0, 5)
-            .attack_speed(1.5, 0.2, 5)
+            .description("Attaque multi-cibles electrique")
+            .cost(100) // Augmenté de 90 à 100
+            .range(120.0, 12.0, 5) // Réduit de 125 à 120
+            .attack_speed(1.2, 0.12, 5) // Réduit de 1.5 à 1.2
             .action_with_upgrades(
                 TowerAction::ApplyDamage {
                     target: EffectTarget::Multi(3),
-                    damage: DamageType::Fixed(7.0),
+                    damage: DamageType::Fixed(6.0), // Réduit de 7 à 6
                 },
                 vec![
-                    ("Degats", ActionUpgradeTarget::Damage, 3.0, 5),
+                    ("Degats", ActionUpgradeTarget::Damage, 2.0, 5),
                     ("Cibles", ActionUpgradeTarget::MaxTargets, 1.0, 3),
                 ],
             )
             .build(),
+        // SEISME - Earthquake: Burst AoE massif, très lent
+        // DPS théorique: 22 × 0.4 = 8.8 DPS en AoE (burst)
         TowerBuilder::new(TowerKind::Seisme, "Tour Seisme", TowerElement::Earth)
             .description("Degats massifs de zone")
-            .cost(110)
-            .range(90.0, 15.0, 5)
-            .attack_speed(0.35, 0.05, 5)
+            .cost(120) // Augmenté de 110 à 120
+            .range(95.0, 12.0, 5) // Légèrement augmenté de 90 à 95
+            .attack_speed(0.4, 0.06, 5) // Légèrement augmenté de 0.35 à 0.4
             .action_with_upgrades(
                 TowerAction::ApplyDamage {
                     target: EffectTarget::Area(55.0),
-                    damage: DamageType::Fixed(18.0),
+                    damage: DamageType::Fixed(22.0), // Augmenté de 18 à 22
                 },
                 vec![
-                    ("Degats", ActionUpgradeTarget::Damage, 4.0, 5),
-                    ("Zone", ActionUpgradeTarget::AoeRadius, 10.0, 5),
+                    ("Degats", ActionUpgradeTarget::Damage, 3.0, 5), // Réduit de 4 à 3
+                    ("Zone", ActionUpgradeTarget::AoeRadius, 8.0, 5),
                 ],
             )
             .build(),
+        // SNIPER - Siege Weapon: Longue portée, tir lent mais puissant
+        // DPS théorique: 15 / 4.0 = 3.75 DPS (mais chaîné sur 4 cibles)
         TowerBuilder::new(TowerKind::Sniper, "Tour Sniper", TowerElement::Electric)
-            .description("Attaque rapide electrique")
-            .cost(90)
-            .range(300.0, 15.0, 5)
-            .attack_speed(5.0, 0.2, 5)
+            .description("Tir longue portee chaine")
+            .cost(130) // Augmenté de 90 à 130
+            .range(280.0, 15.0, 5) // Réduit de 300 à 280
+            .attack_speed(4.0, 0.15, 5) // Réduit de 5.0 à 4.0
             .projectile_size(2.0)
             .action_with_upgrades(
                 TowerAction::ApplyDamage {
                     target: EffectTarget::Chain {
-                        count: 5,
-                        range: 200.0,
+                        count: 4,     // Réduit de 5 à 4
+                        range: 180.0, // Réduit de 200 à 180
                     },
-                    damage: DamageType::Fixed(18.0),
+                    damage: DamageType::Fixed(15.0), // Réduit de 18 à 15
                 },
-                vec![("Degats", ActionUpgradeTarget::Damage, 4.0, 5)],
+                vec![("Degats", ActionUpgradeTarget::Damage, 3.0, 5)],
             )
             .build(),
+        // FORGE - Economy: Génération passive d'or
         TowerBuilder::new(TowerKind::Forge, "Forge", TowerElement::Earth)
             .description("Genere de l'or passivement")
-            .cost(150)
+            .cost(180) // Augmenté de 150 à 180 (ROI ~90s base)
             .range(0.0, 0.0, 0)
             .attack_speed(0.0, 0.0, 0)
             .action_with_upgrades(
                 TowerAction::GoldGen {
                     gold_per_second: 2.0,
                 },
-                vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 1.0, 5)],
+                vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.8, 5)], // Réduit de 1.0 à 0.8
             )
             .build(),
+        // ALARME - Utility: Notifications système
         TowerBuilder::new(TowerKind::Alarme, "Alarme", TowerElement::Electric)
             .description("Notifications systeme configurables")
             .cost(75)

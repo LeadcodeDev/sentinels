@@ -58,12 +58,58 @@ pub struct Enemy {
 }
 
 impl Enemy {
+    /// Calcule les multiplicateurs de stats basés sur les Tiers D&D
+    /// Tier 1 (vagues 1-5):   Base stats - Introduction
+    /// Tier 2 (vagues 6-10):  HP ×1.25, DMG ×1.15 - Montée en puissance
+    /// Tier 3 (vagues 11-15): HP ×1.50, DMG ×1.30 - Challenge sérieux
+    /// Tier 4 (vagues 16-20): HP ×2.00, DMG ×1.50 - Difficile
+    /// Tier 5 (vagues 21+):   HP ×2.50, DMG ×1.75 - Epic/Endgame
+    fn get_tier_scaling(wave_number: u32) -> (f32, f32, f32) {
+        // Retourne (hp_multiplier, damage_multiplier, gold_multiplier)
+        match wave_number {
+            1..=5 => (1.0, 1.0, 1.0),
+            6..=10 => {
+                // Interpolation linéaire dans le tier pour une transition douce
+                let progress = (wave_number - 5) as f32 / 5.0;
+                (
+                    1.0 + 0.25 * progress, // 1.0 -> 1.25
+                    1.0 + 0.15 * progress, // 1.0 -> 1.15
+                    1.0 + 0.10 * progress, // 1.0 -> 1.10 (bonus or)
+                )
+            }
+            11..=15 => {
+                let progress = (wave_number - 10) as f32 / 5.0;
+                (
+                    1.25 + 0.25 * progress, // 1.25 -> 1.50
+                    1.15 + 0.15 * progress, // 1.15 -> 1.30
+                    1.10 + 0.10 * progress, // 1.10 -> 1.20
+                )
+            }
+            16..=20 => {
+                let progress = (wave_number - 15) as f32 / 5.0;
+                (
+                    1.50 + 0.50 * progress, // 1.50 -> 2.00
+                    1.30 + 0.20 * progress, // 1.30 -> 1.50
+                    1.20 + 0.15 * progress, // 1.20 -> 1.35
+                )
+            }
+            _ => {
+                // Tier 5+: scaling continu mais plus lent
+                let extra_waves = (wave_number - 20) as f32;
+                (
+                    2.00 + 0.10 * extra_waves, // +10% HP par vague au-delà de 20
+                    1.50 + 0.05 * extra_waves, // +5% DMG par vague
+                    1.35 + 0.05 * extra_waves, // +5% or par vague
+                )
+            }
+        }
+    }
+
     pub fn new(id: usize, shape: EnemyShape, wave_number: u32, spawn_pos: Point2D) -> Self {
         use crate::data::enemy_types::get_preset;
 
         let preset = get_preset(shape);
-        let hp_scale = 1.0 + 0.04 * wave_number as f32;
-        let damage_scale = 1.0 + 0.02 * wave_number as f32;
+        let (hp_scale, damage_scale, gold_scale) = Self::get_tier_scaling(wave_number);
 
         Self {
             id,
@@ -76,7 +122,7 @@ impl Enemy {
             attack_range: preset.attack_range,
             attack_speed: preset.attack_speed,
             attack_cooldown: 0.0,
-            gold_value: preset.gold_value,
+            gold_value: (preset.gold_value as f32 * gold_scale) as u32,
             radius: preset.radius,
             applied_elements: Vec::new(),
             slow_factor: 1.0,
