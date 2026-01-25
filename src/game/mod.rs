@@ -118,6 +118,15 @@ pub struct AoeSplash {
 }
 
 #[derive(Clone)]
+pub struct GoldPulse {
+    pub position: Point2D,
+    pub radius: f32,
+    pub max_radius: f32,
+    pub lifetime: f32,
+    pub max_lifetime: f32,
+}
+
+#[derive(Clone)]
 pub struct Economy {
     pub gold: u32,
     pub score: u32,
@@ -133,6 +142,7 @@ pub struct GameState {
     pub enemies: Vec<Enemy>,
     pub projectiles: Vec<Projectile>,
     pub aoe_splashes: Vec<AoeSplash>,
+    pub gold_pulses: Vec<GoldPulse>,
     pub wave_manager: WaveManager,
     pub economy: Economy,
     pub phase: GamePhase,
@@ -159,6 +169,7 @@ impl GameState {
             enemies: Vec::new(),
             projectiles: Vec::new(),
             aoe_splashes: Vec::new(),
+            gold_pulses: Vec::new(),
             wave_manager: WaveManager::new(),
             economy: Economy {
                 gold: 500 + bonus_gold,
@@ -211,6 +222,33 @@ impl GameState {
                 self.shield.hp = self.shield.max_hp;
             }
         }
+
+        // 2b. Tower passive gold generation
+        // Accumulate gold and trigger pulse once per second
+        let mut new_pulses: Vec<GoldPulse> = Vec::new();
+        for i in 0..self.towers.len() {
+            let resolved = self.towers[i].resolved_actions();
+            for action in resolved {
+                if let ResolvedAction::GoldGen { gold_per_second } = action {
+                    let prev_acc = self.towers[i].gold_accumulator;
+                    self.towers[i].gold_accumulator += dt;
+                    // Trigger every second
+                    if prev_acc.floor() < self.towers[i].gold_accumulator.floor() {
+                        let gold_earned = gold_per_second as u32;
+                        self.economy.gold += gold_earned;
+                        // Spawn gold pulse effect
+                        new_pulses.push(GoldPulse {
+                            position: self.towers[i].position.clone(),
+                            radius: 0.0,
+                            max_radius: 40.0,
+                            lifetime: 0.5,
+                            max_lifetime: 0.5,
+                        });
+                    }
+                }
+            }
+        }
+        self.gold_pulses.extend(new_pulses);
 
         // 3. Enemy movement (blocked by shield)
         let center = Point2D::zero();
@@ -289,6 +327,7 @@ impl GameState {
                                 EffectTarget::Multi(n) => *n as usize,
                                 _ => 1,
                             },
+                            ResolvedAction::GoldGen { .. } => 0,
                         })
                         .max()
                         .unwrap_or(1);
@@ -545,6 +584,8 @@ impl GameState {
                             }
                         }
                     },
+                    // GoldGen is handled passively, not on hit
+                    ResolvedAction::GoldGen { .. } => {}
                 }
             }
         }
@@ -585,6 +626,14 @@ impl GameState {
             splash.lifetime -= dt;
         }
         self.aoe_splashes.retain(|s| s.lifetime > 0.0);
+
+        // Update gold pulses
+        for pulse in &mut self.gold_pulses {
+            pulse.lifetime -= dt;
+            let progress = 1.0 - (pulse.lifetime / pulse.max_lifetime);
+            pulse.radius = pulse.max_radius * progress;
+        }
+        self.gold_pulses.retain(|p| p.lifetime > 0.0);
 
         // 10. Remove enemies that reached the player (no shield)
         let player_radius = self.player.radius;

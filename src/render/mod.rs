@@ -24,6 +24,7 @@ pub fn render_game(
     let enemies = game.enemies.clone();
     let projectiles = game.projectiles.clone();
     let aoe_splashes = game.aoe_splashes.clone();
+    let gold_pulses = game.gold_pulses.clone();
     let elapsed = game.elapsed;
     let selected_tower = game.selected_tower;
 
@@ -70,6 +71,11 @@ pub fn render_game(
             // Draw towers
             for tower in &towers {
                 draw_tower(window, center, tower);
+            }
+
+            // Draw gold pulses
+            for pulse in &gold_pulses {
+                draw_gold_pulse(window, center, pulse);
             }
 
             // Draw enemies

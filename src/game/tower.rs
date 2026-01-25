@@ -15,6 +15,7 @@ pub struct Tower {
     pub actions: Vec<TowerActionState>,
     pub base_cost: u32,
     pub radius: f32,
+    pub gold_accumulator: f32,
 }
 
 #[derive(Clone)]
@@ -60,6 +61,7 @@ impl Tower {
             actions,
             base_cost: def.base_cost,
             radius: 14.0,
+            gold_accumulator: 0.0,
         }
     }
 

@@ -10,6 +10,7 @@ pub enum TowerKind {
     Tesla,
     Seisme,
     Sniper,
+    Forge,
 }
 
 impl TowerKind {
@@ -21,6 +22,7 @@ impl TowerKind {
             TowerKind::Tesla,
             TowerKind::Seisme,
             TowerKind::Sniper,
+            TowerKind::Forge,
         ]
     }
 }
@@ -54,6 +56,8 @@ pub enum TowerAction {
         target: EffectTarget,
         effect: EffectType,
     },
+    /// Passive gold generation (gold per second)
+    GoldGen { gold_per_second: f32 },
 }
 
 #[derive(Clone)]
@@ -70,6 +74,7 @@ pub enum ActionUpgradeTarget {
     EffectDuration,
     EffectRatio,
     MaxTargets,
+    GoldPerSecond,
 }
 
 #[derive(Clone)]
@@ -152,6 +157,9 @@ pub enum ResolvedAction {
     ApplyEffect {
         target: EffectTarget,
         effect: ResolvedEffect,
+    },
+    GoldGen {
+        gold_per_second: f32,
     },
 }
 
@@ -271,6 +279,17 @@ impl TowerActionDef {
                 ResolvedAction::ApplyEffect {
                     target: resolved_target,
                     effect: resolved_effect,
+                }
+            }
+            TowerAction::GoldGen { gold_per_second } => {
+                let mut gps = *gold_per_second;
+                for u in &self.upgrades {
+                    if u.applies_to == ActionUpgradeTarget::GoldPerSecond {
+                        gps += u.prop.bonus_per_level * u.prop.current_level as f32;
+                    }
+                }
+                ResolvedAction::GoldGen {
+                    gold_per_second: gps,
                 }
             }
         }
@@ -514,6 +533,18 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     damage: DamageType::Fixed(18.0),
                 },
                 vec![("Degats", ActionUpgradeTarget::Damage, 4.0, 5)],
+            )
+            .build(),
+        TowerBuilder::new(TowerKind::Forge, "Forge", TowerElement::Earth)
+            .description("Genere de l'or passivement")
+            .cost(150)
+            .range(0.0, 0.0, 0)
+            .attack_speed(0.0, 0.0, 0)
+            .action_with_upgrades(
+                TowerAction::GoldGen {
+                    gold_per_second: 2.0,
+                },
+                vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 1.0, 5)],
             )
             .build(),
     ]

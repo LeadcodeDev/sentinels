@@ -1,6 +1,7 @@
 use gpui::*;
 
 use crate::game::AoeSplash;
+use crate::game::GoldPulse;
 use crate::game::Shield;
 use crate::game::enemy::Enemy;
 use crate::game::player::Player;
@@ -546,4 +547,69 @@ fn draw_hp_bar(window: &mut Window, pos: Point<Pixels>, hp: f32, max_hp: f32, ra
         border_color: Hsla::transparent_black(),
         border_style: BorderStyle::default(),
     });
+}
+
+pub fn draw_gold_pulse(window: &mut Window, center: Point<Pixels>, pulse: &GoldPulse) {
+    let screen_pos = to_screen(center, &pulse.position);
+
+    // Progress: 0.0 (just spawned) -> 1.0 (expired)
+    let progress = 1.0 - (pulse.lifetime / pulse.max_lifetime);
+
+    // Alpha fades out as pulse expands
+    let alpha = 0.8 * (1.0 - progress);
+
+    // Gold color
+    let gold_h = 0.13; // Golden yellow hue
+    let gold_s = 0.9;
+    let gold_l = 0.55;
+
+    // Draw expanding ring outline
+    let segments = 24u32;
+    let ring_width = 2.0 * (1.0 - progress * 0.5); // Ring gets thinner as it expands
+
+    for i in 0..segments {
+        let angle1 = (2.0 * std::f32::consts::PI * i as f32) / segments as f32;
+        let angle2 = (2.0 * std::f32::consts::PI * (i + 1) as f32) / segments as f32;
+
+        let p1 = point(
+            screen_pos.x + px(pulse.radius * angle1.cos()),
+            screen_pos.y + px(pulse.radius * angle1.sin()),
+        );
+        let p2 = point(
+            screen_pos.x + px(pulse.radius * angle2.cos()),
+            screen_pos.y + px(pulse.radius * angle2.sin()),
+        );
+
+        let dx = f32::from(p2.x) - f32::from(p1.x);
+        let dy = f32::from(p2.y) - f32::from(p1.y);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 0.1 {
+            continue;
+        }
+        let nx = -dy / len;
+        let ny = dx / len;
+        let half_width = ring_width;
+
+        let points = vec![
+            point(p1.x + px(nx * half_width), p1.y + px(ny * half_width)),
+            point(p2.x + px(nx * half_width), p2.y + px(ny * half_width)),
+            point(p2.x - px(nx * half_width), p2.y - px(ny * half_width)),
+            point(p1.x - px(nx * half_width), p1.y - px(ny * half_width)),
+        ];
+
+        let mut path = Path::new(points[0]);
+        for p in &points[1..] {
+            path.line_to(*p);
+        }
+        path.line_to(points[0]);
+        window.paint_path(
+            path,
+            Hsla {
+                h: gold_h,
+                s: gold_s,
+                l: gold_l,
+                a: alpha,
+            },
+        );
+    }
 }
