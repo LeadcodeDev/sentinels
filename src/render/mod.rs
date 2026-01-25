@@ -68,6 +68,11 @@ pub fn render_game(
                 },
             );
 
+            // Draw tower auras (before towers so they appear behind)
+            for tower in &towers {
+                draw_tower_auras(window, center, tower, elapsed);
+            }
+
             // Draw towers
             for tower in &towers {
                 draw_tower(window, center, tower);

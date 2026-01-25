@@ -1,4 +1,5 @@
 use crate::game::elemental::TowerElement;
+use crate::game::enemy::ElementalStateKind;
 
 /// Priorité de ciblage des tourelles
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -50,13 +51,14 @@ impl TargetPriority {
 pub enum TowerKind {
     Sentinelle,
     Inferno,
-    Glacier,
+    Ocean,
     Tesla,
     Seisme,
     Sniper,
-    Forge,
+    Armurerie,
     Alarme,
     Void,
+    Glace,
 }
 
 impl TowerKind {
@@ -64,11 +66,12 @@ impl TowerKind {
         &[
             TowerKind::Sentinelle,
             TowerKind::Inferno,
-            TowerKind::Glacier,
+            TowerKind::Ocean,
+            TowerKind::Glace,
             TowerKind::Tesla,
             TowerKind::Seisme,
             TowerKind::Sniper,
-            TowerKind::Forge,
+            TowerKind::Armurerie,
             TowerKind::Void,
             TowerKind::Alarme,
         ]
@@ -106,6 +109,76 @@ pub enum TowerAction {
     },
     /// Passive gold generation (gold per second)
     GoldGen { gold_per_second: f32 },
+
+    // ========================================================================
+    // NOUVELLES ACTIONS
+    // ========================================================================
+    /// Applique un état élémentaire (Brûlé, Trempé, Sismique)
+    ApplyElementalState {
+        target: EffectTarget,
+        state: ElementalStateKind,
+        duration: f32,
+        strength: f32, // dps pour Burned, ratio pour Soaked, stun_duration pour Seismic
+    },
+
+    /// Zone passive autour de la tour (aura) - applique un état aux ennemis proches
+    AuraEffect {
+        radius: f32,
+        state: ElementalStateKind,
+        duration: f32,
+        strength: f32,
+    },
+
+    /// Annihilation: kill instant si 4 états, sinon %HP sur boss
+    Annihilate {
+        required_states: u8,
+        boss_damage_percent: f32,
+    },
+
+    /// Dégâts conditionnels basés sur le nombre d'états (zone)
+    ConditionalDamage {
+        min_states: u8,
+        damage_percent: f32,
+        radius: f32,
+    },
+
+    /// Tir aléatoire sur la carte (bombardement)
+    RandomBombard {
+        damage: f32,
+        radius: f32, // zone d'impact
+    },
+
+    /// Vol de vie (dégâts aux ennemis proches + heal joueur)
+    LifeSteal {
+        radius: f32,
+        damage_per_second: f32,
+        heal_ratio: f32, // % des dégâts convertis en heal
+    },
+
+    /// Applique l'état Froid avec dégâts et zone
+    /// Si la cible est Trempée, elle devient Gelée
+    ApplyCold {
+        target: EffectTarget,
+        damage: f32,
+        cold_duration: f32,
+        freeze_duration: f32, // Durée du gel si combiné avec Trempé
+        aoe_radius: f32,      // Rayon d'application aux ennemis proches
+    },
+
+    /// Aura de froid (zone passive)
+    ColdAura {
+        radius: f32,
+        cold_duration: f32,
+        freeze_duration: f32,
+    },
+
+    /// Glaciation: dégâts %HP + Froid à tous les ennemis dans la zone
+    Glaciation {
+        radius: f32,
+        damage_percent: f32,
+        cold_duration: f32,
+        freeze_duration: f32,
+    },
 }
 
 #[derive(Clone)]
@@ -123,6 +196,21 @@ pub enum ActionUpgradeTarget {
     EffectRatio,
     MaxTargets,
     GoldPerSecond,
+    // Nouvelles cibles d'upgrade
+    StateDuration,
+    StateStrength,
+    BossDamagePercent,
+    AuraRadius,
+    BombardDamage,
+    BombardRadius,
+    LifeStealDps,
+    LifeStealRadius,
+    HealRatio,
+    ConditionalDamagePercent,
+    // Glace
+    ColdDuration,
+    FreezeDuration,
+    GlaciationDamagePercent,
 }
 
 // ============================================================================
@@ -314,6 +402,56 @@ pub enum ResolvedAction {
     GoldGen {
         gold_per_second: f32,
     },
+    // Nouvelles actions résolues
+    ApplyElementalState {
+        target: EffectTarget,
+        state: ElementalStateKind,
+        duration: f32,
+        strength: f32,
+    },
+    AuraEffect {
+        radius: f32,
+        state: ElementalStateKind,
+        duration: f32,
+        strength: f32,
+    },
+    Annihilate {
+        required_states: u8,
+        boss_damage_percent: f32,
+    },
+    ConditionalDamage {
+        min_states: u8,
+        damage_percent: f32,
+        radius: f32,
+    },
+    RandomBombard {
+        damage: f32,
+        radius: f32,
+    },
+    LifeSteal {
+        radius: f32,
+        damage_per_second: f32,
+        heal_ratio: f32,
+    },
+    // Glace
+    ApplyCold {
+        target: EffectTarget,
+        damage: f32,
+        cold_duration: f32,
+        freeze_duration: f32,
+        aoe_radius: f32,
+    },
+    ColdAura {
+        radius: f32,
+        cold_duration: f32,
+        freeze_duration: f32,
+    },
+    Glaciation {
+        radius: f32,
+        damage_percent: f32,
+        cold_duration: f32,
+        freeze_duration: f32,
+    },
 }
 
 impl TowerActionDef {
@@ -443,6 +581,248 @@ impl TowerActionDef {
                 }
                 ResolvedAction::GoldGen {
                     gold_per_second: gps,
+                }
+            }
+            // Nouvelles actions
+            TowerAction::ApplyElementalState {
+                target,
+                state,
+                duration,
+                strength,
+            } => {
+                let mut dur = *duration;
+                let mut str = *strength;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::StateDuration => {
+                            dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::StateStrength => {
+                            str += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::ApplyElementalState {
+                    target: target.clone(),
+                    state: *state,
+                    duration: dur,
+                    strength: str,
+                }
+            }
+            TowerAction::AuraEffect {
+                radius,
+                state,
+                duration,
+                strength,
+            } => {
+                let mut rad = *radius;
+                let mut dur = *duration;
+                let mut str = *strength;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::AuraRadius => {
+                            rad += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::StateDuration => {
+                            dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::StateStrength => {
+                            str += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::AuraEffect {
+                    radius: rad,
+                    state: *state,
+                    duration: dur,
+                    strength: str,
+                }
+            }
+            TowerAction::Annihilate {
+                required_states,
+                boss_damage_percent,
+            } => {
+                let mut bdp = *boss_damage_percent;
+                for u in &self.upgrades {
+                    if u.applies_to == ActionUpgradeTarget::BossDamagePercent {
+                        bdp += u.prop.bonus_per_level * u.prop.current_level as f32;
+                    }
+                }
+                ResolvedAction::Annihilate {
+                    required_states: *required_states,
+                    boss_damage_percent: bdp,
+                }
+            }
+            TowerAction::ConditionalDamage {
+                min_states,
+                damage_percent,
+                radius,
+            } => {
+                let mut dp = *damage_percent;
+                let mut rad = *radius;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::ConditionalDamagePercent => {
+                            dp += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::AoeRadius => {
+                            rad += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::ConditionalDamage {
+                    min_states: *min_states,
+                    damage_percent: dp,
+                    radius: rad,
+                }
+            }
+            TowerAction::RandomBombard { damage, radius } => {
+                let mut dmg = *damage;
+                let mut rad = *radius;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::BombardDamage => {
+                            dmg += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::BombardRadius => {
+                            rad += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::RandomBombard {
+                    damage: dmg,
+                    radius: rad,
+                }
+            }
+            TowerAction::LifeSteal {
+                radius,
+                damage_per_second,
+                heal_ratio,
+            } => {
+                let mut rad = *radius;
+                let mut dps = *damage_per_second;
+                let mut hr = *heal_ratio;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::LifeStealRadius => {
+                            rad += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::LifeStealDps => {
+                            dps += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::HealRatio => {
+                            hr += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::LifeSteal {
+                    radius: rad,
+                    damage_per_second: dps,
+                    heal_ratio: hr,
+                }
+            }
+            // Glace
+            TowerAction::ApplyCold {
+                target,
+                damage,
+                cold_duration,
+                freeze_duration,
+                aoe_radius,
+            } => {
+                let mut dmg = *damage;
+                let mut cold_dur = *cold_duration;
+                let mut freeze_dur = *freeze_duration;
+                let mut aoe = *aoe_radius;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::Damage => {
+                            dmg += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::ColdDuration => {
+                            cold_dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::FreezeDuration => {
+                            freeze_dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::AoeRadius => {
+                            aoe += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::ApplyCold {
+                    target: target.clone(),
+                    damage: dmg,
+                    cold_duration: cold_dur,
+                    freeze_duration: freeze_dur,
+                    aoe_radius: aoe,
+                }
+            }
+            TowerAction::ColdAura {
+                radius,
+                cold_duration,
+                freeze_duration,
+            } => {
+                let mut rad = *radius;
+                let mut cold_dur = *cold_duration;
+                let mut freeze_dur = *freeze_duration;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::AuraRadius => {
+                            rad += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::ColdDuration => {
+                            cold_dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::FreezeDuration => {
+                            freeze_dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::ColdAura {
+                    radius: rad,
+                    cold_duration: cold_dur,
+                    freeze_duration: freeze_dur,
+                }
+            }
+            TowerAction::Glaciation {
+                radius,
+                damage_percent,
+                cold_duration,
+                freeze_duration,
+            } => {
+                let mut rad = *radius;
+                let mut dmg_pct = *damage_percent;
+                let mut cold_dur = *cold_duration;
+                let mut freeze_dur = *freeze_duration;
+                for u in &self.upgrades {
+                    match u.applies_to {
+                        ActionUpgradeTarget::AoeRadius => {
+                            rad += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::GlaciationDamagePercent => {
+                            dmg_pct += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::ColdDuration => {
+                            cold_dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        ActionUpgradeTarget::FreezeDuration => {
+                            freeze_dur += u.prop.bonus_per_level * u.prop.current_level as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                ResolvedAction::Glaciation {
+                    radius: rad,
+                    damage_percent: dmg_pct,
+                    cold_duration: cold_dur,
+                    freeze_duration: freeze_dur,
                 }
             }
         }
@@ -644,6 +1024,74 @@ fn extract_base_value(action: &TowerAction, target: ActionUpgradeTarget) -> f32 
         (TowerAction::GoldGen { gold_per_second }, ActionUpgradeTarget::GoldPerSecond) => {
             *gold_per_second
         }
+        // Nouvelles actions
+        (TowerAction::ApplyElementalState { duration, .. }, ActionUpgradeTarget::StateDuration) => {
+            *duration
+        }
+        (TowerAction::ApplyElementalState { strength, .. }, ActionUpgradeTarget::StateStrength) => {
+            *strength
+        }
+        (TowerAction::AuraEffect { radius, .. }, ActionUpgradeTarget::AuraRadius) => *radius,
+        (TowerAction::AuraEffect { duration, .. }, ActionUpgradeTarget::StateDuration) => *duration,
+        (TowerAction::AuraEffect { strength, .. }, ActionUpgradeTarget::StateStrength) => *strength,
+        (
+            TowerAction::Annihilate {
+                boss_damage_percent,
+                ..
+            },
+            ActionUpgradeTarget::BossDamagePercent,
+        ) => *boss_damage_percent,
+        (
+            TowerAction::ConditionalDamage { damage_percent, .. },
+            ActionUpgradeTarget::ConditionalDamagePercent,
+        ) => *damage_percent,
+        (TowerAction::ConditionalDamage { radius, .. }, ActionUpgradeTarget::AoeRadius) => *radius,
+        (TowerAction::RandomBombard { damage, .. }, ActionUpgradeTarget::BombardDamage) => *damage,
+        (TowerAction::RandomBombard { radius, .. }, ActionUpgradeTarget::BombardRadius) => *radius,
+        (TowerAction::LifeSteal { radius, .. }, ActionUpgradeTarget::LifeStealRadius) => *radius,
+        (
+            TowerAction::LifeSteal {
+                damage_per_second, ..
+            },
+            ActionUpgradeTarget::LifeStealDps,
+        ) => *damage_per_second,
+        (TowerAction::LifeSteal { heal_ratio, .. }, ActionUpgradeTarget::HealRatio) => *heal_ratio,
+        // Glace
+        (TowerAction::ApplyCold { damage, .. }, ActionUpgradeTarget::Damage) => *damage,
+        (TowerAction::ApplyCold { cold_duration, .. }, ActionUpgradeTarget::ColdDuration) => {
+            *cold_duration
+        }
+        (
+            TowerAction::ApplyCold {
+                freeze_duration, ..
+            },
+            ActionUpgradeTarget::FreezeDuration,
+        ) => *freeze_duration,
+        (TowerAction::ApplyCold { aoe_radius, .. }, ActionUpgradeTarget::AoeRadius) => *aoe_radius,
+        (TowerAction::ColdAura { radius, .. }, ActionUpgradeTarget::AuraRadius) => *radius,
+        (TowerAction::ColdAura { cold_duration, .. }, ActionUpgradeTarget::ColdDuration) => {
+            *cold_duration
+        }
+        (
+            TowerAction::ColdAura {
+                freeze_duration, ..
+            },
+            ActionUpgradeTarget::FreezeDuration,
+        ) => *freeze_duration,
+        (TowerAction::Glaciation { radius, .. }, ActionUpgradeTarget::AoeRadius) => *radius,
+        (
+            TowerAction::Glaciation { damage_percent, .. },
+            ActionUpgradeTarget::GlaciationDamagePercent,
+        ) => *damage_percent,
+        (TowerAction::Glaciation { cold_duration, .. }, ActionUpgradeTarget::ColdDuration) => {
+            *cold_duration
+        }
+        (
+            TowerAction::Glaciation {
+                freeze_duration, ..
+            },
+            ActionUpgradeTarget::FreezeDuration,
+        ) => *freeze_duration,
         _ => 0.0,
     }
 }
@@ -734,17 +1182,16 @@ impl TowerBuilder {
 pub fn all_tower_defs() -> Vec<TowerDef> {
     vec![
         // ===================================================================
-        // SENTINELLE - Tour polyvalente pour débutants
+        // SENTINELLE - Tour basique polyvalente
         // ===================================================================
         TowerBuilder::new(TowerKind::Sentinelle, "Sentinelle", TowerElement::Neutral)
             .description("Tour basique equilibree avec 3 modes de tir")
             .cost(50)
-            // Skill 1: Tir Standard - Baseline équilibré
             .skill(
                 SkillBuilder::active(0, "Tir Standard")
                     .description("Attaque equilibree a cible unique")
                     .icon("S")
-                    .cost(30)
+                    .cost(0) // Gratuit, c'est la skill de base
                     .range(140.0, 12.0, 5)
                     .attack_speed(1.0, 0.1, 5)
                     .can_change_target()
@@ -757,13 +1204,12 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     )
                     .build(),
             )
-            // Skill 2: Tir Rapide - Cadence élevée, dégâts réduits
             .skill(
                 SkillBuilder::active(1, "Tir Rapide")
                     .description("Cadence elevee mais degats reduits")
                     .icon("R")
                     .cost(60)
-                    .range_fixed(100.0) // Portée fixe, non upgradable
+                    .range_fixed(100.0)
                     .attack_speed(2.0, 0.15, 5)
                     .action_with_upgrades(
                         TowerAction::ApplyDamage {
@@ -774,7 +1220,6 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                     )
                     .build(),
             )
-            // Skill 3: Vigilance - Génération passive d'or
             .skill(
                 SkillBuilder::passive(2, "Vigilance")
                     .description("Genere de l'or passivement")
@@ -790,66 +1235,62 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
             )
             .build(),
         // ===================================================================
-        // INFERNO - Tour de feu, dégâts de zone + brûlure
+        // INFERNO - Tour de feu (Brûlé)
         // ===================================================================
         TowerBuilder::new(TowerKind::Inferno, "Inferno", TowerElement::Fire)
-            .description("Tour de feu avec degats de zone")
+            .description("Tour de feu qui applique l'etat Brule")
             .cost(80)
             .skill(
-                SkillBuilder::active(0, "Boule de Feu")
-                    .description("Explosion de zone avec brulure")
+                SkillBuilder::active(0, "Flamme Ardente")
+                    .description("Cible la plus proche non brulee, applique Brule")
                     .icon("F")
-                    .cost(40)
-                    .range(110.0, 10.0, 5)
+                    .cost(0)
+                    .range(120.0, 10.0, 5)
                     .attack_speed(0.8, 0.08, 5)
                     .action_with_upgrades(
                         TowerAction::ApplyDamage {
-                            target: EffectTarget::Area(45.0),
+                            target: EffectTarget::Single,
                             damage: DamageType::Fixed(8.0),
                         },
-                        vec![
-                            ("Degats", ActionUpgradeTarget::Damage, 2.0, 5),
-                            ("Zone", ActionUpgradeTarget::AoeRadius, 8.0, 5),
-                        ],
+                        vec![("Degats", ActionUpgradeTarget::Damage, 2.0, 5)],
                     )
                     .action_with_upgrades(
-                        TowerAction::ApplyEffect {
-                            target: EffectTarget::Area(45.0),
-                            effect: EffectType::Burn {
-                                dps: 4.0,
-                                duration: 2.5,
-                            },
+                        TowerAction::ApplyElementalState {
+                            target: EffectTarget::Single,
+                            state: ElementalStateKind::Burned,
+                            duration: 4.0,
+                            strength: 5.0, // 5 dps
                         },
-                        vec![("Brulure", ActionUpgradeTarget::EffectDps, 1.5, 5)],
+                        vec![
+                            ("Duree", ActionUpgradeTarget::StateDuration, 0.5, 5),
+                            ("Brulure", ActionUpgradeTarget::StateStrength, 1.0, 5),
+                        ],
                     )
                     .build(),
             )
             .skill(
-                SkillBuilder::active(1, "Mur de Flammes")
-                    .description("Zone de brulure prolongee")
-                    .icon("M")
+                SkillBuilder::passive(1, "Aura Incendiaire")
+                    .description("Zone autour de la tour, applique Brule aux non-brules")
+                    .icon("A")
                     .cost(75)
-                    .range_fixed(80.0)
-                    .attack_speed_fixed(0.5)
                     .action_with_upgrades(
-                        TowerAction::ApplyEffect {
-                            target: EffectTarget::Area(60.0),
-                            effect: EffectType::Burn {
-                                dps: 6.0,
-                                duration: 4.0,
-                            },
+                        TowerAction::AuraEffect {
+                            radius: 100.0,
+                            state: ElementalStateKind::Burned,
+                            duration: 4.0,
+                            strength: 5.0,
                         },
                         vec![
-                            ("Brulure", ActionUpgradeTarget::EffectDps, 2.0, 5),
-                            ("Zone", ActionUpgradeTarget::AoeRadius, 10.0, 5),
+                            ("Rayon", ActionUpgradeTarget::AuraRadius, 15.0, 5),
+                            ("Brulure", ActionUpgradeTarget::StateStrength, 1.0, 5),
                         ],
                     )
                     .build(),
             )
             .skill(
-                SkillBuilder::passive(2, "Chaleur Intense")
+                SkillBuilder::passive(2, "Brasier")
                     .description("Genere de l'or grace a la forge")
-                    .icon("C")
+                    .icon("B")
                     .cost(120)
                     .action_with_upgrades(
                         TowerAction::GoldGen {
@@ -861,69 +1302,62 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
             )
             .build(),
         // ===================================================================
-        // GLACIER - Tour de glace, ralentissement
+        // OCEAN - Tour des océans (Trempé)
         // ===================================================================
-        TowerBuilder::new(TowerKind::Glacier, "Glacier", TowerElement::Water)
-            .description("Tour de glace specialisee dans le controle")
-            .cost(70)
+        TowerBuilder::new(TowerKind::Ocean, "Ocean", TowerElement::Water)
+            .description("Tour d'eau qui applique l'etat Trempe (ralentissement)")
+            .cost(75)
             .skill(
-                SkillBuilder::active(0, "Trait de Givre")
-                    .description("Tir unique avec ralentissement")
-                    .icon("G")
-                    .cost(35)
+                SkillBuilder::active(0, "Vague Deferlante")
+                    .description("Degats eau + applique Trempe")
+                    .icon("V")
+                    .cost(0)
                     .range(130.0, 10.0, 5)
-                    .attack_speed(0.8, 0.08, 5)
+                    .attack_speed(1.0, 0.1, 5)
                     .action_with_upgrades(
                         TowerAction::ApplyDamage {
                             target: EffectTarget::Single,
-                            damage: DamageType::Fixed(7.0),
+                            damage: DamageType::Fixed(6.0),
                         },
                         vec![("Degats", ActionUpgradeTarget::Damage, 1.5, 5)],
                     )
                     .action_with_upgrades(
-                        TowerAction::ApplyEffect {
+                        TowerAction::ApplyElementalState {
                             target: EffectTarget::Single,
-                            effect: EffectType::Slow {
-                                ratio: 0.45,
-                                duration: 2.0,
-                            },
+                            state: ElementalStateKind::Soaked,
+                            duration: 4.0,
+                            strength: 0.6, // 40% slow (1.0 - 0.6 = 0.4)
                         },
-                        vec![("Ralentissement", ActionUpgradeTarget::EffectRatio, 0.03, 5)],
+                        vec![("Duree", ActionUpgradeTarget::StateDuration, 0.5, 5)],
                     )
                     .build(),
             )
             .skill(
-                SkillBuilder::active(1, "Blizzard")
-                    .description("Zone de ralentissement massive")
-                    .icon("B")
+                SkillBuilder::passive(1, "Maree Montante")
+                    .description("Zone autour de la tour, applique Trempe aux entrants")
+                    .icon("M")
                     .cost(80)
-                    .range_fixed(100.0)
-                    .attack_speed(0.6, 0.05, 5)
                     .action_with_upgrades(
-                        TowerAction::ApplyEffect {
-                            target: EffectTarget::Area(70.0),
-                            effect: EffectType::Slow {
-                                ratio: 0.3,
-                                duration: 3.0,
-                            },
+                        TowerAction::AuraEffect {
+                            radius: 90.0,
+                            state: ElementalStateKind::Soaked,
+                            duration: 4.0,
+                            strength: 0.6,
                         },
-                        vec![
-                            ("Ralentissement", ActionUpgradeTarget::EffectRatio, 0.02, 5),
-                            ("Zone", ActionUpgradeTarget::AoeRadius, 10.0, 5),
-                        ],
+                        vec![("Rayon", ActionUpgradeTarget::AuraRadius, 15.0, 5)],
                     )
                     .build(),
             )
             .skill(
-                SkillBuilder::passive(2, "Permafrost")
-                    .description("Genere de l'or par cristallisation")
-                    .icon("P")
+                SkillBuilder::passive(2, "Courant Marin")
+                    .description("Genere de l'or")
+                    .icon("C")
                     .cost(90)
                     .action_with_upgrades(
                         TowerAction::GoldGen {
-                            gold_per_second: 1.2,
+                            gold_per_second: 1.0,
                         },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.6, 5)],
+                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.5, 5)],
                     )
                     .build(),
             )
@@ -938,7 +1372,7 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                 SkillBuilder::active(0, "Arc Electrique")
                     .description("Frappe plusieurs ennemis simultanement")
                     .icon("A")
-                    .cost(50)
+                    .cost(0)
                     .range(120.0, 10.0, 5)
                     .attack_speed(1.2, 0.1, 5)
                     .action_with_upgrades(
@@ -987,63 +1421,63 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
             )
             .build(),
         // ===================================================================
-        // SEISME - Tour de terre, dégâts massifs de zone
+        // SEISME - Tour sismique (Sismique = stun on hit)
         // ===================================================================
         TowerBuilder::new(TowerKind::Seisme, "Seisme", TowerElement::Earth)
-            .description("Tour de terre avec degats de zone massifs")
-            .cost(120)
+            .description("Tour de terre qui applique l'etat Sismique")
+            .cost(90)
             .skill(
                 SkillBuilder::active(0, "Secousse")
-                    .description("Impact de zone devastateur")
+                    .description("Degats terre + stun court a la cible")
                     .icon("S")
-                    .cost(60)
-                    .range(95.0, 8.0, 5)
-                    .attack_speed(0.4, 0.04, 5)
+                    .cost(0)
+                    .range(100.0, 8.0, 5)
+                    .attack_speed(0.6, 0.05, 5)
                     .action_with_upgrades(
                         TowerAction::ApplyDamage {
-                            target: EffectTarget::Area(55.0),
-                            damage: DamageType::Fixed(22.0),
-                        },
-                        vec![
-                            ("Degats", ActionUpgradeTarget::Damage, 3.0, 5),
-                            ("Zone", ActionUpgradeTarget::AoeRadius, 8.0, 5),
-                        ],
-                    )
-                    .build(),
-            )
-            .skill(
-                SkillBuilder::active(1, "Faille")
-                    .description("Cree une fissure qui stun les ennemis")
-                    .icon("F")
-                    .cost(100)
-                    .range_fixed(80.0)
-                    .attack_speed_fixed(0.25)
-                    .action_with_upgrades(
-                        TowerAction::ApplyDamage {
-                            target: EffectTarget::Area(70.0),
-                            damage: DamageType::Fixed(15.0),
+                            target: EffectTarget::Single,
+                            damage: DamageType::Fixed(12.0),
                         },
                         vec![("Degats", ActionUpgradeTarget::Damage, 2.5, 5)],
                     )
                     .action_with_upgrades(
                         TowerAction::ApplyEffect {
-                            target: EffectTarget::Area(70.0),
-                            effect: EffectType::Stun { duration: 1.0 },
+                            target: EffectTarget::Single,
+                            effect: EffectType::Stun { duration: 0.3 },
                         },
-                        vec![("Stun", ActionUpgradeTarget::EffectDuration, 0.2, 5)],
+                        vec![("Stun", ActionUpgradeTarget::EffectDuration, 0.1, 5)],
                     )
                     .build(),
             )
             .skill(
-                SkillBuilder::passive(2, "Mine d'Or")
-                    .description("Extrait de l'or du sol")
-                    .icon("M")
-                    .cost(150)
+                SkillBuilder::passive(1, "Onde Tellurique")
+                    .description("Zone (1.5/s), applique Sismique aux entrants")
+                    .icon("O")
+                    .cost(85)
+                    .action_with_upgrades(
+                        TowerAction::AuraEffect {
+                            radius: 80.0,
+                            state: ElementalStateKind::Seismic,
+                            duration: 4.0,
+                            strength: 0.15, // 0.15s stun per hit
+                        },
+                        vec![
+                            ("Rayon", ActionUpgradeTarget::AuraRadius, 12.0, 5),
+                            ("Stun", ActionUpgradeTarget::StateStrength, 0.03, 5),
+                        ],
+                    )
+                    .build(),
+            )
+            .skill(
+                SkillBuilder::passive(2, "Resonance")
+                    .description("Genere de l'or")
+                    .icon("R")
+                    .cost(100)
                     .action_with_upgrades(
                         TowerAction::GoldGen {
-                            gold_per_second: 2.5,
+                            gold_per_second: 1.2,
                         },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 1.0, 5)],
+                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.6, 5)],
                     )
                     .build(),
             )
@@ -1059,7 +1493,7 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                 SkillBuilder::active(0, "Tir de Precision")
                     .description("Tir unique tres longue portee")
                     .icon("P")
-                    .cost(65)
+                    .cost(0)
                     .range(280.0, 15.0, 5)
                     .attack_speed(0.25, 0.02, 5)
                     .projectile_size(2.0)
@@ -1108,107 +1542,200 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
             )
             .build(),
         // ===================================================================
-        // FORGE - Tour économique
+        // ARMURERIE - Tour de dégâts
         // ===================================================================
-        TowerBuilder::new(TowerKind::Forge, "Forge", TowerElement::Earth)
-            .description("Tour economique specialisee dans la production d'or")
-            .cost(180)
+        TowerBuilder::new(TowerKind::Armurerie, "Armurerie", TowerElement::Neutral)
+            .description("Tour de degats avec plusieurs modes de tir")
+            .cost(120)
             .skill(
-                SkillBuilder::passive(0, "Production")
-                    .description("Genere de l'or de base")
-                    .icon("P")
-                    .cost(50)
-                    .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 2.0,
-                        },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.8, 5)],
-                    )
-                    .build(),
-            )
-            .skill(
-                SkillBuilder::passive(1, "Raffinage")
-                    .description("Production d'or amelioree")
+                SkillBuilder::active(0, "Tir Rafale")
+                    .description("Faibles degats, tres haute cadence")
                     .icon("R")
-                    .cost(100)
+                    .cost(0)
+                    .range(100.0, 8.0, 5)
+                    .attack_speed(4.0, 0.3, 5)
                     .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 3.0,
+                        TowerAction::ApplyDamage {
+                            target: EffectTarget::Single,
+                            damage: DamageType::Fixed(3.0),
                         },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 1.2, 5)],
+                        vec![("Degats", ActionUpgradeTarget::Damage, 0.5, 5)],
                     )
                     .build(),
             )
             .skill(
-                SkillBuilder::active(2, "Marteau")
-                    .description("Peut aussi attaquer au corps a corps")
-                    .icon("M")
-                    .cost(80)
-                    .range_fixed(50.0)
-                    .attack_speed(0.5, 0.05, 5)
+                SkillBuilder::active(1, "Artillerie Lourde")
+                    .description("Lourds degats, haute cadence")
+                    .icon("A")
+                    .cost(100)
+                    .range(150.0, 10.0, 5)
+                    .attack_speed(1.5, 0.1, 5)
+                    .can_change_target()
                     .action_with_upgrades(
                         TowerAction::ApplyDamage {
                             target: EffectTarget::Single,
                             damage: DamageType::Fixed(20.0),
                         },
-                        vec![("Degats", ActionUpgradeTarget::Damage, 3.0, 5)],
+                        vec![("Degats", ActionUpgradeTarget::Damage, 4.0, 5)],
+                    )
+                    .build(),
+            )
+            .skill(
+                SkillBuilder::active(2, "Bombardement")
+                    .description("Obus aleatoire, tres lourds degats")
+                    .icon("B")
+                    .cost(150)
+                    .range_fixed(300.0) // Grande portée mais position aléatoire
+                    .attack_speed_fixed(0.33) // 1 tir / 3s
+                    .action_with_upgrades(
+                        TowerAction::RandomBombard {
+                            damage: 50.0,
+                            radius: 60.0,
+                        },
+                        vec![
+                            ("Degats", ActionUpgradeTarget::BombardDamage, 10.0, 5),
+                            ("Zone", ActionUpgradeTarget::BombardRadius, 10.0, 5),
+                        ],
                     )
                     .build(),
             )
             .build(),
         // ===================================================================
-        // VOID - Tour anti-tank (% HP)
+        // VOID - Tour du vide (combinaisons d'états)
         // ===================================================================
         TowerBuilder::new(TowerKind::Void, "Void", TowerElement::Neutral)
-            .description("Tour specialisee contre les ennemis a gros HP")
-            .cost(200)
+            .description("Tour specialisee contre les ennemis avec etats elementaires")
+            .cost(250)
             .target_priority(TargetPriority::HighestHp)
             .skill(
-                SkillBuilder::active(0, "Drain Vital")
-                    .description("Inflige des degats bases sur les HP max")
-                    .icon("D")
-                    .cost(80)
-                    .range(100.0, 12.0, 5)
-                    .attack_speed(0.25, 0.02, 5)
+                SkillBuilder::active(0, "Annihilation")
+                    .description("Kill si 4 etats, boss: 10% HP + supprime etats")
+                    .icon("X")
+                    .cost(0)
+                    .range(100.0, 10.0, 5)
+                    .attack_speed(0.3, 0.02, 5)
                     .can_change_target()
                     .action_with_upgrades(
-                        TowerAction::ApplyDamage {
-                            target: EffectTarget::Single,
-                            damage: DamageType::PercentHp(10.0),
+                        TowerAction::Annihilate {
+                            required_states: 4,
+                            boss_damage_percent: 10.0,
                         },
-                        vec![("% Degats", ActionUpgradeTarget::Damage, 2.0, 5)],
+                        vec![("% Boss", ActionUpgradeTarget::BossDamagePercent, 2.0, 5)],
                     )
                     .build(),
             )
             .skill(
-                SkillBuilder::active(1, "Neant")
-                    .description("Zone de degats en % HP")
-                    .icon("N")
-                    .cost(120)
-                    .range_fixed(80.0)
-                    .attack_speed_fixed(0.15)
+                SkillBuilder::passive(1, "The Void")
+                    .description("Zone: si 3+ etats, 10% HP")
+                    .icon("V")
+                    .cost(150)
                     .action_with_upgrades(
-                        TowerAction::ApplyDamage {
-                            target: EffectTarget::Area(50.0),
-                            damage: DamageType::PercentHp(5.0),
+                        TowerAction::ConditionalDamage {
+                            min_states: 3,
+                            damage_percent: 10.0,
+                            radius: 120.0,
                         },
                         vec![
-                            ("% Degats", ActionUpgradeTarget::Damage, 1.0, 5),
-                            ("Zone", ActionUpgradeTarget::AoeRadius, 8.0, 5),
+                            (
+                                "% Degats",
+                                ActionUpgradeTarget::ConditionalDamagePercent,
+                                2.0,
+                                5,
+                            ),
+                            ("Rayon", ActionUpgradeTarget::AoeRadius, 15.0, 5),
                         ],
                     )
                     .build(),
             )
             .skill(
                 SkillBuilder::passive(2, "Absorption")
-                    .description("Absorbe l'energie pour generer de l'or")
+                    .description("Vole de la vie aux ennemis, heal le joueur")
                     .icon("A")
-                    .cost(100)
+                    .cost(120)
                     .action_with_upgrades(
-                        TowerAction::GoldGen {
-                            gold_per_second: 1.5,
+                        TowerAction::LifeSteal {
+                            radius: 80.0,
+                            damage_per_second: 3.0,
+                            heal_ratio: 50.0, // 50% des dégâts convertis en heal
                         },
-                        vec![("Or/sec", ActionUpgradeTarget::GoldPerSecond, 0.7, 5)],
+                        vec![
+                            ("DPS", ActionUpgradeTarget::LifeStealDps, 1.0, 5),
+                            ("Heal%", ActionUpgradeTarget::HealRatio, 10.0, 5),
+                        ],
+                    )
+                    .build(),
+            )
+            .build(),
+        // ===================================================================
+        // GLACE - Tour de glace (Froid -> Gelé)
+        // ===================================================================
+        TowerBuilder::new(TowerKind::Glace, "Glace", TowerElement::Water)
+            .description("Tour de glace qui applique Froid et peut geler les ennemis Trempes")
+            .cost(85)
+            .skill(
+                SkillBuilder::active(0, "Souffle Glacial")
+                    .description("Faibles degats et applique Froid en zone")
+                    .icon("G")
+                    .cost(0)
+                    .range(110.0, 10.0, 5)
+                    .attack_speed(0.9, 0.08, 5)
+                    .action_with_upgrades(
+                        TowerAction::ApplyCold {
+                            target: EffectTarget::Single,
+                            damage: 5.0,
+                            cold_duration: 4.0,
+                            freeze_duration: 2.0, // Si Trempe -> 2s de gel
+                            aoe_radius: 50.0,     // Zone d'application du froid
+                        },
+                        vec![
+                            ("Degats", ActionUpgradeTarget::Damage, 1.0, 5),
+                            ("Froid", ActionUpgradeTarget::ColdDuration, 0.5, 5),
+                            ("Gel", ActionUpgradeTarget::FreezeDuration, 0.3, 5),
+                            ("Zone", ActionUpgradeTarget::AoeRadius, 10.0, 5),
+                        ],
+                    )
+                    .build(),
+            )
+            .skill(
+                SkillBuilder::passive(1, "Vent Gele")
+                    .description("Aura de froid autour de la tour")
+                    .icon("V")
+                    .cost(80)
+                    .action_with_upgrades(
+                        TowerAction::ColdAura {
+                            radius: 80.0,
+                            cold_duration: 4.0,
+                            freeze_duration: 2.0,
+                        },
+                        vec![
+                            ("Rayon", ActionUpgradeTarget::AuraRadius, 12.0, 5),
+                            ("Gel", ActionUpgradeTarget::FreezeDuration, 0.3, 5),
+                        ],
+                    )
+                    .build(),
+            )
+            .skill(
+                SkillBuilder::passive(2, "Glaciation")
+                    .description("Degats %HP + Froid a tous les ennemis en zone")
+                    .icon("!")
+                    .cost(150)
+                    .action_with_upgrades(
+                        TowerAction::Glaciation {
+                            radius: 100.0,
+                            damage_percent: 3.0, // 3% HP par tick
+                            cold_duration: 4.0,
+                            freeze_duration: 2.5,
+                        },
+                        vec![
+                            ("Rayon", ActionUpgradeTarget::AoeRadius, 15.0, 5),
+                            (
+                                "% Degats",
+                                ActionUpgradeTarget::GlaciationDamagePercent,
+                                0.5,
+                                5,
+                            ),
+                            ("Gel", ActionUpgradeTarget::FreezeDuration, 0.3, 5),
+                        ],
                     )
                     .build(),
             )
@@ -1223,7 +1750,7 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                 SkillBuilder::passive(0, "Alerte Bouclier")
                     .description("Notifie quand le bouclier est bas")
                     .icon("!")
-                    .cost(25)
+                    .cost(0)
                     .build(),
             )
             .skill(

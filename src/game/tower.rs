@@ -372,6 +372,66 @@ impl Tower {
         skill_def.actions.iter().map(|a| a.resolve()).collect()
     }
 
+    /// Retourne les zones d'aura actives (rayon, couleur HSL)
+    /// Utilisé pour le rendu visuel des auras
+    pub fn active_aura_zones(&self) -> Vec<(f32, (f32, f32, f32))> {
+        use crate::data::tower_defs::ResolvedAction;
+
+        let mut zones = Vec::new();
+        let color = self.element.color();
+        let base_color = (color.h, color.s, color.l);
+
+        // Vérifier les actions de la skill active
+        for action in self.resolved_actions() {
+            match action {
+                ResolvedAction::AuraEffect { radius, .. } => {
+                    zones.push((radius, base_color));
+                }
+                ResolvedAction::ColdAura { radius, .. } => {
+                    // Bleu clair pour le froid
+                    zones.push((radius, (0.55, 0.7, 0.6)));
+                }
+                ResolvedAction::Glaciation { radius, .. } => {
+                    // Cyan pour glaciation
+                    zones.push((radius, (0.52, 0.8, 0.5)));
+                }
+                ResolvedAction::ConditionalDamage { radius, .. } => {
+                    // Violet pour le void
+                    zones.push((radius, (0.75, 0.6, 0.4)));
+                }
+                ResolvedAction::LifeSteal { radius, .. } => {
+                    // Rouge sombre pour lifesteal
+                    zones.push((radius, (0.0, 0.7, 0.3)));
+                }
+                _ => {}
+            }
+        }
+
+        // Vérifier aussi les skills passives
+        for action in self.passive_effects() {
+            match action {
+                ResolvedAction::AuraEffect { radius, .. } => {
+                    zones.push((radius, base_color));
+                }
+                ResolvedAction::ColdAura { radius, .. } => {
+                    zones.push((radius, (0.55, 0.7, 0.6)));
+                }
+                ResolvedAction::Glaciation { radius, .. } => {
+                    zones.push((radius, (0.52, 0.8, 0.5)));
+                }
+                ResolvedAction::ConditionalDamage { radius, .. } => {
+                    zones.push((radius, (0.75, 0.6, 0.4)));
+                }
+                ResolvedAction::LifeSteal { radius, .. } => {
+                    zones.push((radius, (0.0, 0.7, 0.3)));
+                }
+                _ => {}
+            }
+        }
+
+        zones
+    }
+
     /// Retourne les effets passifs (actions de toutes les skills passives achetées)
     pub fn passive_effects(&self) -> Vec<ResolvedAction> {
         let def = get_def(self.kind);

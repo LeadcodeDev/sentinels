@@ -339,11 +339,20 @@ impl GameState {
                         .iter()
                         .map(|a| match a {
                             ResolvedAction::ApplyDamage { target, .. }
-                            | ResolvedAction::ApplyEffect { target, .. } => match target {
+                            | ResolvedAction::ApplyEffect { target, .. }
+                            | ResolvedAction::ApplyElementalState { target, .. }
+                            | ResolvedAction::ApplyCold { target, .. } => match target {
                                 EffectTarget::Multi(n) => *n as usize,
                                 _ => 1,
                             },
-                            ResolvedAction::GoldGen { .. } => 0,
+                            ResolvedAction::GoldGen { .. }
+                            | ResolvedAction::AuraEffect { .. }
+                            | ResolvedAction::LifeSteal { .. }
+                            | ResolvedAction::ConditionalDamage { .. }
+                            | ResolvedAction::RandomBombard { .. }
+                            | ResolvedAction::ColdAura { .. }
+                            | ResolvedAction::Glaciation { .. } => 0,
+                            ResolvedAction::Annihilate { .. } => 1,
                         })
                         .max()
                         .unwrap_or(1);
@@ -632,8 +641,233 @@ impl GameState {
                     },
                     // GoldGen is handled passively, not on hit
                     ResolvedAction::GoldGen { .. } => {}
+
+                    // Apply elemental state
+                    ResolvedAction::ApplyElementalState {
+                        target,
+                        state,
+                        duration,
+                        strength,
+                    } => {
+                        match target {
+                            EffectTarget::Single | EffectTarget::Multi(_) => {
+                                apply_elemental_state(
+                                    &mut self.enemies[idx],
+                                    *state,
+                                    *duration,
+                                    *strength,
+                                );
+                            }
+                            EffectTarget::Area(radius) => {
+                                for enemy in &mut self.enemies {
+                                    if enemy.position.distance_to(&pos) < *radius {
+                                        apply_elemental_state(enemy, *state, *duration, *strength);
+                                    }
+                                }
+                            }
+                            EffectTarget::Chain { count, range } => {
+                                apply_elemental_state(
+                                    &mut self.enemies[idx],
+                                    *state,
+                                    *duration,
+                                    *strength,
+                                );
+                                let mut current_pos = self.enemies[idx].position.clone();
+                                let mut hit_indices = vec![idx];
+                                for _ in 0..*count {
+                                    let mut best: Option<(usize, f32)> = None;
+                                    for (i, e) in self.enemies.iter().enumerate() {
+                                        if hit_indices.contains(&i) || e.is_dead() {
+                                            continue;
+                                        }
+                                        let d = current_pos.distance_to(&e.position);
+                                        if d <= *range {
+                                            if best.is_none() || d < best.unwrap().1 {
+                                                best = Some((i, d));
+                                            }
+                                        }
+                                    }
+                                    if let Some((next_idx, _)) = best {
+                                        current_pos = self.enemies[next_idx].position.clone();
+                                        hit_indices.push(next_idx);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                // Apply to all chained targets
+                                for i in hit_indices {
+                                    if i != idx {
+                                        apply_elemental_state(
+                                            &mut self.enemies[i],
+                                            *state,
+                                            *duration,
+                                            *strength,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Annihilate: kill if 4+ states, else %HP to boss
+                    ResolvedAction::Annihilate {
+                        required_states,
+                        boss_damage_percent,
+                    } => {
+                        let enemy = &mut self.enemies[idx];
+                        let state_count = enemy.count_states();
+                        if state_count >= *required_states as usize {
+                            if enemy.is_boss {
+                                // Boss: deal %HP damage and clear states
+                                let dmg = enemy.max_hp * boss_damage_percent / 100.0;
+                                enemy.take_damage(dmg, element);
+                                enemy.clear_states();
+                            } else {
+                                // Non-boss: instant kill
+                                enemy.hp = 0.0;
+                            }
+                        }
+                    }
+
+                    // Apply Cold: damage + cold state with AoE
+                    ResolvedAction::ApplyCold {
+                        target,
+                        damage,
+                        cold_duration,
+                        freeze_duration,
+                        aoe_radius,
+                    } => {
+                        // Apply damage and cold to main target
+                        self.enemies[idx].take_damage(*damage, element);
+                        self.enemies[idx].apply_cold(*freeze_duration, *cold_duration);
+
+                        // Apply cold to nearby enemies (within aoe_radius)
+                        if *aoe_radius > 0.0 {
+                            let main_pos = self.enemies[idx].position.clone();
+                            for (i, enemy) in self.enemies.iter_mut().enumerate() {
+                                if i != idx && enemy.position.distance_to(&main_pos) <= *aoe_radius
+                                {
+                                    enemy.apply_cold(*freeze_duration, *cold_duration);
+                                }
+                            }
+                        }
+
+                        // Visual splash for AoE
+                        if *aoe_radius > 0.0 {
+                            let color = element.color();
+                            self.aoe_splashes.push(AoeSplash {
+                                position: pos.clone(),
+                                radius: *aoe_radius,
+                                color: (color.h, color.s, color.l),
+                                lifetime: 0.3,
+                                max_lifetime: 0.3,
+                            });
+                        }
+                    }
+
+                    // These are passive/aura effects, handled separately
+                    ResolvedAction::AuraEffect { .. } => {}
+                    ResolvedAction::ConditionalDamage { .. } => {}
+                    ResolvedAction::RandomBombard { .. } => {}
+                    ResolvedAction::LifeSteal { .. } => {}
+                    ResolvedAction::ColdAura { .. } => {}
+                    ResolvedAction::Glaciation { .. } => {}
                 }
             }
+        }
+
+        // 7b. Tick elemental states on all enemies
+        for enemy in &mut self.enemies {
+            enemy.tick_elemental_states(dt);
+        }
+
+        // 7c. Process passive tower effects (auras, lifesteal, conditional damage)
+        let mut player_heal = 0.0f32;
+        for tower in &self.towers {
+            let tower_pos = tower.position.clone();
+            let resolved = tower.resolved_actions();
+            let element = tower.element;
+
+            for action in &resolved {
+                match action {
+                    ResolvedAction::AuraEffect {
+                        radius,
+                        state,
+                        duration,
+                        strength,
+                    } => {
+                        // Apply state to all enemies in range that don't have it
+                        for enemy in &mut self.enemies {
+                            if tower_pos.distance_to(&enemy.position) <= *radius {
+                                if !enemy.has_state(*state) {
+                                    apply_elemental_state(enemy, *state, *duration, *strength);
+                                }
+                            }
+                        }
+                    }
+                    ResolvedAction::LifeSteal {
+                        radius,
+                        damage_per_second,
+                        heal_ratio,
+                    } => {
+                        // Deal damage to nearby enemies and heal player
+                        let dmg = damage_per_second * dt;
+                        for enemy in &mut self.enemies {
+                            if tower_pos.distance_to(&enemy.position) <= *radius {
+                                enemy.take_damage(dmg, element);
+                                player_heal += dmg * heal_ratio / 100.0;
+                            }
+                        }
+                    }
+                    ResolvedAction::ConditionalDamage {
+                        min_states,
+                        damage_percent,
+                        radius,
+                    } => {
+                        // Deal %HP damage to enemies with enough states
+                        for enemy in &mut self.enemies {
+                            if tower_pos.distance_to(&enemy.position) <= *radius {
+                                if enemy.count_states() >= *min_states as usize {
+                                    let dmg = enemy.max_hp * damage_percent / 100.0;
+                                    enemy.take_damage(dmg, element);
+                                }
+                            }
+                        }
+                    }
+                    ResolvedAction::ColdAura {
+                        radius,
+                        cold_duration,
+                        freeze_duration,
+                    } => {
+                        // Apply cold to enemies in range
+                        for enemy in &mut self.enemies {
+                            if tower_pos.distance_to(&enemy.position) <= *radius {
+                                enemy.apply_cold(*freeze_duration, *cold_duration);
+                            }
+                        }
+                    }
+                    ResolvedAction::Glaciation {
+                        radius,
+                        damage_percent,
+                        cold_duration,
+                        freeze_duration,
+                    } => {
+                        // Deal %HP damage and apply cold to all enemies in range
+                        for enemy in &mut self.enemies {
+                            if tower_pos.distance_to(&enemy.position) <= *radius {
+                                let dmg = enemy.hp * damage_percent / 100.0;
+                                enemy.take_damage(dmg, element);
+                                enemy.apply_cold(*freeze_duration, *cold_duration);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Apply accumulated player heal
+        if player_heal > 0.0 {
+            self.player.hp = (self.player.hp + player_heal).min(self.player.max_hp);
         }
 
         // 8. Remove dead enemies + award gold + random pepite drops
@@ -740,14 +974,17 @@ impl GameState {
         self.economy.gold -= def.base_cost;
         let id = self.towers.len();
         self.towers.push(Tower::from_def(id, kind, pos));
+        // Sélectionner automatiquement la tour après placement
+        self.selected_tower = Some(id);
     }
 
     pub fn try_select_at(&mut self, x: f32, y: f32) {
         let click_pos = Point2D::new(x, y);
 
-        // Check if clicked on a tower
+        // Check if clicked on a tower (generous click radius)
         for (i, tower) in self.towers.iter().enumerate() {
-            if tower.position.distance_to(&click_pos) < tower.radius + 10.0 {
+            let click_radius = tower.radius + 20.0; // Zone de clic généreuse
+            if tower.position.distance_to(&click_pos) < click_radius {
                 if self.selected_tower == Some(i) {
                     // Re-click on same tower -> deselect
                     self.selected_tower = None;
@@ -759,6 +996,7 @@ impl GameState {
             }
         }
 
+        // Clic en dehors d'une tour -> désélectionner
         self.selected_tower = None;
     }
 
@@ -871,6 +1109,32 @@ fn apply_effect_to_enemy(enemy: &mut Enemy, effect: &ResolvedEffect) {
         }
         ResolvedEffect::Stun { duration } => {
             enemy.apply_stun(*duration);
+        }
+    }
+}
+
+fn apply_elemental_state(
+    enemy: &mut Enemy,
+    state: enemy::ElementalStateKind,
+    duration: f32,
+    strength: f32,
+) {
+    match state {
+        enemy::ElementalStateKind::Burned => {
+            enemy.apply_burned(strength, duration);
+        }
+        enemy::ElementalStateKind::Soaked => {
+            enemy.apply_soaked(strength, duration);
+        }
+        enemy::ElementalStateKind::Seismic => {
+            enemy.apply_seismic(strength, duration);
+        }
+        enemy::ElementalStateKind::Cold => {
+            // strength = freeze_duration, duration = cold_duration
+            enemy.apply_cold(strength, duration);
+        }
+        enemy::ElementalStateKind::Frozen => {
+            enemy.apply_frozen(duration);
         }
     }
 }

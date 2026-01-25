@@ -306,18 +306,26 @@ fn selected_tower_section(
             })
             .on_click(cx.listener(move |screen, _, _window, _cx| {
                 if let Some(idx) = screen.game_state.selected_tower {
-                    let tower = &screen.game_state.towers[idx];
-                    match &tower.skills[skill_idx] {
-                        SkillState::Locked => {
-                            screen.game_state.purchase_skill(idx, skill_idx);
-                        }
-                        SkillState::Purchased(_) => {
-                            screen.game_state.activate_skill(idx, skill_idx);
-                        }
-                        SkillState::Active(_) => {
-                            // Already active, do nothing
-                        }
+                    // Copier l'état de la skill pour éviter les problèmes de borrow
+                    let skill_is_locked = screen
+                        .game_state
+                        .towers
+                        .get(idx)
+                        .map(|t| matches!(t.skills[skill_idx], SkillState::Locked))
+                        .unwrap_or(true);
+                    let skill_is_purchased = screen
+                        .game_state
+                        .towers
+                        .get(idx)
+                        .map(|t| matches!(t.skills[skill_idx], SkillState::Purchased(_)))
+                        .unwrap_or(false);
+
+                    if skill_is_locked {
+                        screen.game_state.purchase_skill(idx, skill_idx);
+                    } else if skill_is_purchased {
+                        screen.game_state.activate_skill(idx, skill_idx);
                     }
+                    // Si Active, ne rien faire
                 }
             }))
             .into_any_element()

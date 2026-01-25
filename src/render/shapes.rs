@@ -277,6 +277,101 @@ pub fn draw_tower(window: &mut Window, center: Point<Pixels>, tower: &Tower) {
     }
 }
 
+/// Dessine les zones d'aura actives d'une tour
+pub fn draw_tower_auras(window: &mut Window, center: Point<Pixels>, tower: &Tower, elapsed: f32) {
+    let screen_pos = to_screen(center, &tower.position);
+    let aura_zones = tower.active_aura_zones();
+
+    for (radius, (h, s, l)) in aura_zones {
+        // Animation de pulsation subtile
+        let pulse = 1.0 + 0.05 * (elapsed * 2.0).sin();
+        let animated_radius = radius * pulse;
+
+        // Cercle rempli très transparent
+        draw_circle(
+            window,
+            screen_pos,
+            animated_radius,
+            Hsla { h, s, l, a: 0.08 },
+        );
+
+        // Contour de l'aura (plus visible)
+        draw_aura_outline(window, screen_pos, animated_radius, h, s, l, elapsed);
+    }
+}
+
+/// Dessine le contour animé d'une aura
+fn draw_aura_outline(
+    window: &mut Window,
+    screen_pos: Point<Pixels>,
+    radius: f32,
+    h: f32,
+    s: f32,
+    l: f32,
+    elapsed: f32,
+) {
+    let segments = 32u32;
+    let dash_length = 8; // Nombre de segments par dash
+
+    for i in 0..segments {
+        // Animation de rotation du pattern
+        let rotation_offset = (elapsed * 0.5) % 1.0;
+        let adjusted_i = (i as f32 + rotation_offset * segments as f32) as u32 % segments;
+
+        // Pattern de tirets (dash on/off)
+        let dash_index = adjusted_i / dash_length as u32;
+        let is_visible = dash_index % 2 == 0;
+
+        if !is_visible {
+            continue;
+        }
+
+        let angle1 = (2.0 * std::f32::consts::PI * i as f32) / segments as f32;
+        let angle2 = (2.0 * std::f32::consts::PI * (i + 1) as f32) / segments as f32;
+
+        let p1 = point(
+            screen_pos.x + px(radius * angle1.cos()),
+            screen_pos.y + px(radius * angle1.sin()),
+        );
+        let p2 = point(
+            screen_pos.x + px(radius * angle2.cos()),
+            screen_pos.y + px(radius * angle2.sin()),
+        );
+
+        let dx = f32::from(p2.x) - f32::from(p1.x);
+        let dy = f32::from(p2.y) - f32::from(p1.y);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 0.1 {
+            continue;
+        }
+        let nx = -dy / len;
+        let ny = dx / len;
+        let half_width = 1.0;
+
+        let points = vec![
+            point(p1.x + px(nx * half_width), p1.y + px(ny * half_width)),
+            point(p2.x + px(nx * half_width), p2.y + px(ny * half_width)),
+            point(p2.x - px(nx * half_width), p2.y - px(ny * half_width)),
+            point(p1.x - px(nx * half_width), p1.y - px(ny * half_width)),
+        ];
+
+        let mut path = Path::new(points[0]);
+        for p in &points[1..] {
+            path.line_to(*p);
+        }
+        path.line_to(points[0]);
+        window.paint_path(
+            path,
+            Hsla {
+                h,
+                s,
+                l: l + 0.1,
+                a: 0.4,
+            },
+        );
+    }
+}
+
 pub fn draw_projectile(window: &mut Window, center: Point<Pixels>, proj: &Projectile) {
     let screen_pos = to_screen(center, &proj.current_pos);
     let origin_screen = to_screen(center, &proj.origin);

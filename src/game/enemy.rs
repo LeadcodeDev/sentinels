@@ -35,6 +35,31 @@ pub struct BurnState {
     pub remaining: f32,
 }
 
+// ============================================================================
+// ELEMENTAL STATES (Brûlé, Trempé, Sismique)
+// ============================================================================
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ElementalStateKind {
+    /// Brûlé: DoT (dégâts sur la durée)
+    Burned,
+    /// Trempé: Ralentissement
+    Soaked,
+    /// Sismique: Stun court à chaque dégât subi
+    Seismic,
+    /// Froid: Si la cible est Trempée, elle perd Trempé et Froid et devient Gelée
+    Cold,
+    /// Gelé: Stun complet pendant X secondes
+    Frozen,
+}
+
+#[derive(Clone)]
+pub struct ElementalState {
+    pub kind: ElementalStateKind,
+    pub remaining: f32,
+    pub strength: f32, // dps pour Burned, ratio slow pour Soaked, stun duration pour Seismic
+}
+
 #[derive(Clone)]
 pub struct Enemy {
     pub id: usize,
@@ -50,6 +75,7 @@ pub struct Enemy {
     pub gold_value: u32,
     pub radius: f32,
     pub applied_elements: Vec<AppliedElement>,
+    pub elemental_states: Vec<ElementalState>,
     pub slow_factor: f32,
     pub slow_duration: f32,
     pub stun_duration: f32,
@@ -125,6 +151,7 @@ impl Enemy {
             gold_value: (preset.gold_value as f32 * gold_scale) as u32,
             radius: preset.radius,
             applied_elements: Vec::new(),
+            elemental_states: Vec::new(),
             slow_factor: 1.0,
             slow_duration: 0.0,
             stun_duration: 0.0,
@@ -226,7 +253,19 @@ impl Enemy {
     }
 
     pub fn take_damage(&mut self, damage: f32, element: TowerElement) {
+        // Surpression: +20% dégâts si Brûlé + Trempé
+        let damage = damage * self.surpression_multiplier();
+
         self.hp -= damage;
+
+        // Sismique: stun court à chaque dégât
+        if let Some(seismic) = self
+            .elemental_states
+            .iter()
+            .find(|s| s.kind == ElementalStateKind::Seismic)
+        {
+            self.apply_stun(seismic.strength);
+        }
 
         if element != TowerElement::Neutral {
             // Check for elemental reactions with existing elements
@@ -304,5 +343,202 @@ impl Enemy {
 
     pub fn is_dead(&self) -> bool {
         self.hp <= 0.0
+    }
+
+    // ========================================================================
+    // ELEMENTAL STATES (Brûlé, Trempé, Sismique)
+    // ========================================================================
+
+    /// Applique l'état Brûlé (DoT)
+    pub fn apply_burned(&mut self, dps: f32, duration: f32) {
+        if let Some(state) = self
+            .elemental_states
+            .iter_mut()
+            .find(|s| s.kind == ElementalStateKind::Burned)
+        {
+            // Refresh with strongest values
+            state.strength = state.strength.max(dps);
+            state.remaining = state.remaining.max(duration);
+        } else {
+            self.elemental_states.push(ElementalState {
+                kind: ElementalStateKind::Burned,
+                remaining: duration,
+                strength: dps,
+            });
+        }
+    }
+
+    /// Applique l'état Trempé (Slow)
+    pub fn apply_soaked(&mut self, slow_ratio: f32, duration: f32) {
+        if let Some(state) = self
+            .elemental_states
+            .iter_mut()
+            .find(|s| s.kind == ElementalStateKind::Soaked)
+        {
+            // Refresh with strongest values (lower ratio = stronger slow)
+            state.strength = state.strength.min(slow_ratio);
+            state.remaining = state.remaining.max(duration);
+        } else {
+            self.elemental_states.push(ElementalState {
+                kind: ElementalStateKind::Soaked,
+                remaining: duration,
+                strength: slow_ratio,
+            });
+        }
+    }
+
+    /// Applique l'état Sismique (stun on hit)
+    pub fn apply_seismic(&mut self, stun_duration: f32, state_duration: f32) {
+        if let Some(state) = self
+            .elemental_states
+            .iter_mut()
+            .find(|s| s.kind == ElementalStateKind::Seismic)
+        {
+            // Refresh with strongest values
+            state.strength = state.strength.max(stun_duration);
+            state.remaining = state.remaining.max(state_duration);
+        } else {
+            self.elemental_states.push(ElementalState {
+                kind: ElementalStateKind::Seismic,
+                remaining: state_duration,
+                strength: stun_duration,
+            });
+        }
+    }
+
+    /// Applique l'état Froid - si Trempé, déclenche Gelé
+    /// Retourne true si la cible a été gelée
+    pub fn apply_cold(&mut self, freeze_duration: f32, cold_duration: f32) -> bool {
+        // Si la cible est Trempée, elle devient Gelée
+        if self.has_state(ElementalStateKind::Soaked) {
+            // Supprime Trempé et Froid
+            self.elemental_states.retain(|s| {
+                s.kind != ElementalStateKind::Soaked && s.kind != ElementalStateKind::Cold
+            });
+            // Applique Gelé
+            self.apply_frozen(freeze_duration);
+            return true;
+        }
+
+        // Sinon, applique simplement Froid
+        if let Some(state) = self
+            .elemental_states
+            .iter_mut()
+            .find(|s| s.kind == ElementalStateKind::Cold)
+        {
+            // Refresh with strongest values
+            state.strength = state.strength.max(freeze_duration);
+            state.remaining = state.remaining.max(cold_duration);
+        } else {
+            self.elemental_states.push(ElementalState {
+                kind: ElementalStateKind::Cold,
+                remaining: cold_duration,
+                strength: freeze_duration, // Durée du freeze si combiné avec Trempé
+            });
+        }
+        false
+    }
+
+    /// Applique l'état Gelé (stun complet)
+    pub fn apply_frozen(&mut self, duration: f32) {
+        if let Some(state) = self
+            .elemental_states
+            .iter_mut()
+            .find(|s| s.kind == ElementalStateKind::Frozen)
+        {
+            // Refresh duration
+            state.remaining = state.remaining.max(duration);
+        } else {
+            self.elemental_states.push(ElementalState {
+                kind: ElementalStateKind::Frozen,
+                remaining: duration,
+                strength: duration,
+            });
+        }
+        // Applique également le stun
+        self.apply_stun(duration);
+    }
+
+    /// Vérifie si l'ennemi a un état spécifique
+    pub fn has_state(&self, kind: ElementalStateKind) -> bool {
+        self.elemental_states.iter().any(|s| s.kind == kind)
+    }
+
+    /// Compte le nombre d'états élémentaires actifs
+    pub fn count_states(&self) -> usize {
+        self.elemental_states.len()
+    }
+
+    /// Supprime tous les états élémentaires
+    pub fn clear_states(&mut self) {
+        self.elemental_states.clear();
+    }
+
+    /// Tick des états élémentaires (appelé chaque frame)
+    pub fn tick_elemental_states(&mut self, dt: f32) {
+        let mut damage_from_burn = 0.0;
+
+        for state in &mut self.elemental_states {
+            state.remaining -= dt;
+
+            match state.kind {
+                ElementalStateKind::Burned => {
+                    // DoT: applique dégâts basés sur dps
+                    damage_from_burn += state.strength * dt;
+                }
+                ElementalStateKind::Soaked => {
+                    // Le slow est appliqué dans effective_speed()
+                }
+                ElementalStateKind::Seismic => {
+                    // Le stun est appliqué dans take_damage()
+                }
+                ElementalStateKind::Cold => {
+                    // Froid attend d'être combiné avec Trempé
+                }
+                ElementalStateKind::Frozen => {
+                    // Gelé: maintient le stun actif
+                    self.stun_duration = self.stun_duration.max(state.remaining);
+                }
+            }
+        }
+
+        // Applique les dégâts de brûlure (sans déclencher Sismique)
+        if damage_from_burn > 0.0 {
+            self.hp -= damage_from_burn;
+        }
+
+        // Supprime les états expirés
+        self.elemental_states.retain(|s| s.remaining > 0.0);
+    }
+
+    /// Retourne la vitesse effective (avec slow de Trempé)
+    pub fn effective_speed(&self) -> f32 {
+        let mut speed = self.speed;
+
+        // Slow from Soaked state
+        if let Some(soaked) = self
+            .elemental_states
+            .iter()
+            .find(|s| s.kind == ElementalStateKind::Soaked)
+        {
+            speed *= soaked.strength;
+        }
+
+        // Legacy slow system
+        if self.slow_duration > 0.0 {
+            speed *= self.slow_factor;
+        }
+
+        speed
+    }
+
+    /// Vérifie la Surpression (Brûlé + Trempé) - retourne le multiplicateur de dégâts
+    pub fn surpression_multiplier(&self) -> f32 {
+        if self.has_state(ElementalStateKind::Burned) && self.has_state(ElementalStateKind::Soaked)
+        {
+            1.20 // +20% dégâts
+        } else {
+            1.0
+        }
     }
 }
