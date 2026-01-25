@@ -270,30 +270,52 @@ impl GameState {
             if self.towers[i].attack_cooldown <= 0.0 {
                 let tower_pos = self.towers[i].position.clone();
                 let tower_range = self.towers[i].attack_range();
-                if let Some(target_idx) =
-                    find_nearest_in_range(&tower_pos, tower_range, &self.enemies)
-                {
+                if let Some(_) = find_nearest_in_range(&tower_pos, tower_range, &self.enemies) {
                     let tower = &self.towers[i];
                     let resolved = tower.resolved_actions();
                     let element = tower.element;
                     let proj_size = get_def(tower.kind).projectile_size;
                     let speed_val = tower.attack_speed_value();
                     self.towers[i].attack_cooldown = 1.0 / speed_val;
-                    let target_pos = self.enemies[target_idx].position.clone();
-                    let target_id = self.enemies[target_idx].id;
-                    self.projectiles.push(Projectile {
-                        origin: tower_pos.clone(),
-                        target_pos: target_pos.clone(),
-                        current_pos: tower_pos,
-                        speed: 350.0,
-                        element,
-                        source: ProjectileSource::Tower(i),
-                        actions: resolved,
-                        lifetime: 3.0,
-                        target_enemy_id: Some(target_id),
-                        fade_timer: None,
-                        size: proj_size,
-                    });
+
+                    // Determine max targets from actions
+                    let max_targets = resolved
+                        .iter()
+                        .map(|a| match a {
+                            ResolvedAction::ApplyDamage { target, .. }
+                            | ResolvedAction::ApplyEffect { target, .. } => match target {
+                                EffectTarget::Multi(n) => *n as usize,
+                                _ => 1,
+                            },
+                        })
+                        .max()
+                        .unwrap_or(1);
+
+                    // Find targets in range
+                    let target_indices = find_n_nearest_in_range(
+                        &tower_pos,
+                        tower_range,
+                        max_targets,
+                        &self.enemies,
+                    );
+
+                    for t_idx in target_indices {
+                        let target_pos = self.enemies[t_idx].position.clone();
+                        let target_id = self.enemies[t_idx].id;
+                        self.projectiles.push(Projectile {
+                            origin: tower_pos.clone(),
+                            target_pos: target_pos.clone(),
+                            current_pos: tower_pos.clone(),
+                            speed: 350.0,
+                            element,
+                            source: ProjectileSource::Tower(i),
+                            actions: resolved.clone(),
+                            lifetime: 3.0,
+                            target_enemy_id: Some(target_id),
+                            fade_timer: None,
+                            size: proj_size,
+                        });
+                    }
                 }
             }
         }
@@ -403,13 +425,50 @@ impl GameState {
                         };
 
                         match target {
-                            EffectTarget::Single => {
+                            EffectTarget::Single | EffectTarget::Multi(_) => {
                                 self.enemies[idx].take_damage(dmg, element);
                             }
-                            EffectTarget::Multi(n) => {
-                                let targets = find_n_nearest(&pos, *n, &self.enemies);
-                                for t_idx in targets {
-                                    self.enemies[t_idx].take_damage(dmg, element);
+                            EffectTarget::Chain { count, range } => {
+                                self.enemies[idx].take_damage(dmg, element);
+                                let mut current_pos = self.enemies[idx].position.clone();
+                                let mut hit_indices = vec![idx];
+                                for _ in 0..*count {
+                                    let mut best: Option<(usize, f32)> = None;
+                                    for (i, e) in self.enemies.iter().enumerate() {
+                                        if hit_indices.contains(&i) || e.is_dead() {
+                                            continue;
+                                        }
+                                        let d = current_pos.distance_to(&e.position);
+                                        if d <= *range {
+                                            if best.is_none() || d < best.unwrap().1 {
+                                                best = Some((i, d));
+                                            }
+                                        }
+                                    }
+                                    if let Some((next_idx, _)) = best {
+                                        let next_pos = self.enemies[next_idx].position.clone();
+                                        // Chain projectile carries damage
+                                        self.projectiles.push(Projectile {
+                                            origin: current_pos.clone(),
+                                            target_pos: next_pos.clone(),
+                                            current_pos: current_pos.clone(),
+                                            speed: 250.0,
+                                            element,
+                                            source: ProjectileSource::Player,
+                                            actions: vec![ResolvedAction::ApplyDamage {
+                                                target: EffectTarget::Single,
+                                                damage: damage.clone(),
+                                            }],
+                                            lifetime: 1.0,
+                                            target_enemy_id: Some(self.enemies[next_idx].id),
+                                            fade_timer: None,
+                                            size: 3.0,
+                                        });
+                                        current_pos = next_pos;
+                                        hit_indices.push(next_idx);
+                                    } else {
+                                        break;
+                                    }
                                 }
                             }
                             EffectTarget::Area(radius) => {
@@ -431,13 +490,49 @@ impl GameState {
                         }
                     }
                     ResolvedAction::ApplyEffect { target, effect } => match target {
-                        EffectTarget::Single => {
+                        EffectTarget::Single | EffectTarget::Multi(_) => {
                             apply_effect_to_enemy(&mut self.enemies[idx], effect);
                         }
-                        EffectTarget::Multi(n) => {
-                            let targets = find_n_nearest(&pos, *n, &self.enemies);
-                            for t_idx in targets {
-                                apply_effect_to_enemy(&mut self.enemies[t_idx], effect);
+                        EffectTarget::Chain { count, range } => {
+                            apply_effect_to_enemy(&mut self.enemies[idx], effect);
+                            let mut current_pos = self.enemies[idx].position.clone();
+                            let mut hit_indices = vec![idx];
+                            for _ in 0..*count {
+                                let mut best: Option<(usize, f32)> = None;
+                                for (i, e) in self.enemies.iter().enumerate() {
+                                    if hit_indices.contains(&i) || e.is_dead() {
+                                        continue;
+                                    }
+                                    let d = current_pos.distance_to(&e.position);
+                                    if d <= *range {
+                                        if best.is_none() || d < best.unwrap().1 {
+                                            best = Some((i, d));
+                                        }
+                                    }
+                                }
+                                if let Some((next_idx, _)) = best {
+                                    let next_pos = self.enemies[next_idx].position.clone();
+                                    self.projectiles.push(Projectile {
+                                        origin: current_pos.clone(),
+                                        target_pos: next_pos.clone(),
+                                        current_pos: current_pos.clone(),
+                                        speed: 250.0,
+                                        element,
+                                        source: ProjectileSource::Player,
+                                        actions: vec![ResolvedAction::ApplyEffect {
+                                            target: EffectTarget::Single,
+                                            effect: effect.clone(),
+                                        }],
+                                        lifetime: 1.0,
+                                        target_enemy_id: Some(self.enemies[next_idx].id),
+                                        fade_timer: None,
+                                        size: 3.0,
+                                    });
+                                    current_pos = next_pos;
+                                    hit_indices.push(next_idx);
+                                } else {
+                                    break;
+                                }
                             }
                         }
                         EffectTarget::Area(radius) => {
@@ -661,20 +756,6 @@ fn apply_effect_to_enemy(enemy: &mut Enemy, effect: &ResolvedEffect) {
     }
 }
 
-fn find_n_nearest(pos: &Point2D, n: u32, enemies: &[Enemy]) -> Vec<usize> {
-    let mut indexed: Vec<(usize, f32)> = enemies
-        .iter()
-        .enumerate()
-        .map(|(i, e)| (i, pos.distance_to(&e.position)))
-        .collect();
-    indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-    indexed
-        .into_iter()
-        .take(n as usize)
-        .map(|(i, _)| i)
-        .collect()
-}
-
 fn find_nearest_in_range(pos: &Point2D, range: f32, enemies: &[Enemy]) -> Option<usize> {
     enemies
         .iter()
@@ -686,4 +767,15 @@ fn find_nearest_in_range(pos: &Point2D, range: f32, enemies: &[Enemy]) -> Option
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .map(|(idx, _)| idx)
+}
+
+fn find_n_nearest_in_range(pos: &Point2D, range: f32, n: usize, enemies: &[Enemy]) -> Vec<usize> {
+    let mut indexed: Vec<(usize, f32)> = enemies
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| pos.distance_to(&e.position) <= range)
+        .map(|(i, e)| (i, pos.distance_to(&e.position)))
+        .collect();
+    indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.into_iter().take(n).map(|(i, _)| i).collect()
 }

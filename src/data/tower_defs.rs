@@ -30,6 +30,11 @@ pub enum EffectTarget {
     Single,
     Multi(u32),
     Area(f32),
+    /// Chain: hits primary target, then chains to up to `count` enemies within `range` of each other
+    Chain {
+        count: u32,
+        range: f32,
+    },
 }
 
 #[derive(Clone)]
@@ -502,7 +507,10 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
             .projectile_size(2.0)
             .action_with_upgrades(
                 TowerAction::ApplyDamage {
-                    target: EffectTarget::Multi(INFINITY as u32),
+                    target: EffectTarget::Chain {
+                        count: 5,
+                        range: 200.0,
+                    },
                     damage: DamageType::Fixed(18.0),
                 },
                 vec![("Degats", ActionUpgradeTarget::Damage, 4.0, 5)],
