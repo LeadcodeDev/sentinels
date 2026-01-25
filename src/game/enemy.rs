@@ -42,15 +42,22 @@ pub struct BurnState {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ElementalStateKind {
     /// Brûlé: DoT (dégâts sur la durée)
-    Burned,
+    Burned = 0,
     /// Trempé: Ralentissement
-    Soaked,
+    Soaked = 1,
     /// Sismique: Stun court à chaque dégât subi
-    Seismic,
+    Seismic = 2,
     /// Froid: Si la cible est Trempée, elle perd Trempé et Froid et devient Gelée
-    Cold,
+    Cold = 3,
     /// Gelé: Stun complet pendant X secondes
-    Frozen,
+    Frozen = 4,
+}
+
+impl ElementalStateKind {
+    /// Retourne l'index pour le tableau de cooldowns
+    pub fn index(&self) -> usize {
+        *self as usize
+    }
 }
 
 #[derive(Clone)]
@@ -81,51 +88,128 @@ pub struct Enemy {
     pub stun_duration: f32,
     pub is_boss: bool,
     pub burn: Option<BurnState>,
+    /// Immunité post-Gel : temps restant d'immunité à Trempé/Froid après un Gel
+    pub freeze_immunity: f32,
+    /// Cooldowns par type d'état élémentaire (pour éviter le spam d'auras)
+    pub state_cooldowns: [f32; 5], // Un cooldown par ElementalStateKind
 }
 
 impl Enemy {
-    /// Calcule les multiplicateurs de stats basés sur les Tiers D&D
-    /// Tier 1 (vagues 1-5):   Base stats - Introduction
-    /// Tier 2 (vagues 6-10):  HP ×1.25, DMG ×1.15 - Montée en puissance
-    /// Tier 3 (vagues 11-15): HP ×1.50, DMG ×1.30 - Challenge sérieux
-    /// Tier 4 (vagues 16-20): HP ×2.00, DMG ×1.50 - Difficile
-    /// Tier 5 (vagues 21+):   HP ×2.50, DMG ×1.75 - Epic/Endgame
+    /// Système de scaling inspiré de D&D avec 4 phases :
+    ///
+    /// ## Phase 1 : Tiers D&D (vagues 1-20)
+    /// Progression par paliers de 5 vagues, comme les tiers de jeu D&D
+    /// - Tier 1 (1-5):   Niveau 1-4   - Apprentis aventuriers
+    /// - Tier 2 (6-10):  Niveau 5-10  - Héros locaux
+    /// - Tier 3 (11-15): Niveau 11-16 - Héros du royaume
+    /// - Tier 4 (16-20): Niveau 17-20 - Maîtres du monde
+    ///
+    /// ## Phase 2 : Paragon (vagues 21-50)
+    /// Croissance linéaire modérée, consolidation
+    ///
+    /// ## Phase 3 : Epic (vagues 51-100)
+    /// Croissance linéaire plus forte, défis majeurs
+    ///
+    /// ## Phase 4 : Mythique (vagues 101+)
+    /// Croissance EXPONENTIELLE - mode survie ultime
     fn get_tier_scaling(wave_number: u32) -> (f32, f32, f32) {
         // Retourne (hp_multiplier, damage_multiplier, gold_multiplier)
         match wave_number {
-            1..=5 => (1.0, 1.0, 1.0),
-            6..=10 => {
-                // Interpolation linéaire dans le tier pour une transition douce
-                let progress = (wave_number - 5) as f32 / 5.0;
+            // ================================================================
+            // PHASE 1 : TIERS D&D (vagues 1-20)
+            // ================================================================
+
+            // Tier 1 (CR 1/4 - 1) : Introduction, apprentissage
+            1..=5 => {
+                let progress = (wave_number - 1) as f32 / 4.0;
                 (
-                    1.0 + 0.25 * progress, // 1.0 -> 1.25
                     1.0 + 0.15 * progress, // 1.0 -> 1.15
-                    1.0 + 0.10 * progress, // 1.0 -> 1.10 (bonus or)
+                    1.0 + 0.10 * progress, // 1.0 -> 1.10
+                    1.0,
                 )
             }
+
+            // Tier 2 (CR 2-4) : Montée en puissance
+            6..=10 => {
+                let progress = (wave_number - 5) as f32 / 5.0;
+                (
+                    1.15 + 0.35 * progress, // 1.15 -> 1.50
+                    1.10 + 0.20 * progress, // 1.10 -> 1.30
+                    1.0 + 0.15 * progress,  // 1.0 -> 1.15
+                )
+            }
+
+            // Tier 3 (CR 5-10) : Challenge sérieux
             11..=15 => {
                 let progress = (wave_number - 10) as f32 / 5.0;
                 (
-                    1.25 + 0.25 * progress, // 1.25 -> 1.50
+                    1.50 + 0.50 * progress, // 1.50 -> 2.00
+                    1.30 + 0.25 * progress, // 1.30 -> 1.55
                     1.15 + 0.15 * progress, // 1.15 -> 1.30
-                    1.10 + 0.10 * progress, // 1.10 -> 1.20
                 )
             }
+
+            // Tier 4 (CR 11-16) : Héros accomplis
             16..=20 => {
                 let progress = (wave_number - 15) as f32 / 5.0;
                 (
-                    1.50 + 0.50 * progress, // 1.50 -> 2.00
+                    2.00 + 0.75 * progress, // 2.00 -> 2.75
+                    1.55 + 0.30 * progress, // 1.55 -> 1.85
                     1.30 + 0.20 * progress, // 1.30 -> 1.50
-                    1.20 + 0.15 * progress, // 1.20 -> 1.35
                 )
             }
-            _ => {
-                // Tier 5+: scaling continu mais plus lent
-                let extra_waves = (wave_number - 20) as f32;
+
+            // ================================================================
+            // PHASE 2 : PARAGON (vagues 21-50)
+            // Croissance linéaire modérée (+3% HP, +1.5% DMG par vague)
+            // ================================================================
+            21..=50 => {
+                let waves_past_20 = (wave_number - 20) as f32;
                 (
-                    2.00 + 0.10 * extra_waves, // +10% HP par vague au-delà de 20
-                    1.50 + 0.05 * extra_waves, // +5% DMG par vague
-                    1.35 + 0.05 * extra_waves, // +5% or par vague
+                    2.75 + 0.03 * waves_past_20 * (waves_past_20 + 1.0) / 2.0 * 0.1, // Légère accélération
+                    1.85 + 0.015 * waves_past_20 * (waves_past_20 + 1.0) / 2.0 * 0.05,
+                    1.50 + 0.02 * waves_past_20,
+                )
+            }
+
+            // ================================================================
+            // PHASE 3 : EPIC (vagues 51-100)
+            // Croissance linéaire plus forte (+5% HP, +2.5% DMG par vague)
+            // ================================================================
+            51..=100 => {
+                // Valeurs à la vague 50
+                let base_hp = 2.75 + 0.03 * 30.0 * 31.0 / 2.0 * 0.1; // ~4.14
+                let base_dmg = 1.85 + 0.015 * 30.0 * 31.0 / 2.0 * 0.05; // ~2.20
+                let base_gold = 1.50 + 0.02 * 30.0; // 2.10
+
+                let waves_past_50 = (wave_number - 50) as f32;
+                (
+                    base_hp + 0.05 * waves_past_50 + 0.001 * waves_past_50 * waves_past_50,
+                    base_dmg + 0.025 * waves_past_50 + 0.0005 * waves_past_50 * waves_past_50,
+                    base_gold + 0.03 * waves_past_50,
+                )
+            }
+
+            // ================================================================
+            // PHASE 4 : MYTHIQUE (vagues 101+)
+            // Croissance EXPONENTIELLE - survie impossible à long terme
+            // HP et DMG doublent environ toutes les 20 vagues
+            // ================================================================
+            _ => {
+                // Valeurs à la vague 100
+                let base_hp = 4.14 + 0.05 * 50.0 + 0.001 * 50.0 * 50.0; // ~9.14
+                let base_dmg = 2.20 + 0.025 * 50.0 + 0.0005 * 50.0 * 50.0; // ~4.70
+                let base_gold = 2.10 + 0.03 * 50.0; // 3.60
+
+                let waves_past_100 = (wave_number - 100) as f32;
+
+                // Croissance exponentielle : multiplié par 1.035^n (double tous les ~20 vagues)
+                let exp_factor = 1.035_f32.powf(waves_past_100);
+
+                (
+                    base_hp * exp_factor,
+                    base_dmg * exp_factor,
+                    base_gold * (1.0 + 0.05 * waves_past_100).min(10.0), // Cap à x10 or
                 )
             }
         }
@@ -157,6 +241,8 @@ impl Enemy {
             stun_duration: 0.0,
             is_boss: shape == EnemyShape::Octagon,
             burn: None,
+            freeze_immunity: 0.0,
+            state_cooldowns: [0.0; 5],
         }
     }
 
@@ -164,6 +250,18 @@ impl Enemy {
         // Tick stun
         if self.stun_duration > 0.0 {
             self.stun_duration -= dt;
+        }
+
+        // Tick freeze immunity
+        if self.freeze_immunity > 0.0 {
+            self.freeze_immunity -= dt;
+        }
+
+        // Tick state cooldowns
+        for cd in &mut self.state_cooldowns {
+            if *cd > 0.0 {
+                *cd -= dt;
+            }
         }
 
         let is_stunned = self.stun_duration > 0.0;
@@ -346,11 +444,49 @@ impl Enemy {
     }
 
     // ========================================================================
-    // ELEMENTAL STATES (Brûlé, Trempé, Sismique)
+    // ELEMENTAL STATES (Brûlé, Trempé, Sismique, Froid, Gelé)
     // ========================================================================
 
+    /// Durée du cooldown entre deux applications du même état par une aura
+    const STATE_COOLDOWN: f32 = 1.0;
+    /// Durée de l'immunité post-Gel à Trempé et Froid
+    const FREEZE_IMMUNITY_DURATION: f32 = 2.0;
+
+    /// Vérifie si l'ennemi est immunisé aux changements d'état (Gelé bloque tout)
+    pub fn is_state_immune(&self) -> bool {
+        self.has_state(ElementalStateKind::Frozen)
+    }
+
+    /// Vérifie si un état spécifique peut être appliqué (cooldown check)
+    pub fn can_apply_state(&self, kind: ElementalStateKind) -> bool {
+        self.state_cooldowns[kind.index()] <= 0.0
+    }
+
+    /// Déclenche le cooldown pour un état
+    fn trigger_state_cooldown(&mut self, kind: ElementalStateKind) {
+        self.state_cooldowns[kind.index()] = Self::STATE_COOLDOWN;
+    }
+
     /// Applique l'état Brûlé (DoT)
+    /// Option 4: Si l'ennemi est Trempé, Brûlé consume Trempé (évaporation)
     pub fn apply_burned(&mut self, dps: f32, duration: f32) {
+        // Gelé bloque les nouveaux états
+        if self.is_state_immune() {
+            return;
+        }
+
+        // Cooldown check
+        if !self.can_apply_state(ElementalStateKind::Burned) {
+            return;
+        }
+
+        // Option 4: Évaporation - Brûlé annule Trempé
+        if self.has_state(ElementalStateKind::Soaked) {
+            self.elemental_states
+                .retain(|s| s.kind != ElementalStateKind::Soaked);
+            // Note: on applique quand même Brûlé après l'évaporation
+        }
+
         if let Some(state) = self
             .elemental_states
             .iter_mut()
@@ -366,10 +502,28 @@ impl Enemy {
                 strength: dps,
             });
         }
+
+        self.trigger_state_cooldown(ElementalStateKind::Burned);
     }
 
     /// Applique l'état Trempé (Slow)
+    /// Bloqué par l'immunité post-Gel
     pub fn apply_soaked(&mut self, slow_ratio: f32, duration: f32) {
+        // Gelé bloque les nouveaux états
+        if self.is_state_immune() {
+            return;
+        }
+
+        // Option 1: Immunité post-Gel bloque Trempé
+        if self.freeze_immunity > 0.0 {
+            return;
+        }
+
+        // Cooldown check
+        if !self.can_apply_state(ElementalStateKind::Soaked) {
+            return;
+        }
+
         if let Some(state) = self
             .elemental_states
             .iter_mut()
@@ -385,10 +539,22 @@ impl Enemy {
                 strength: slow_ratio,
             });
         }
+
+        self.trigger_state_cooldown(ElementalStateKind::Soaked);
     }
 
     /// Applique l'état Sismique (stun on hit)
     pub fn apply_seismic(&mut self, stun_duration: f32, state_duration: f32) {
+        // Gelé bloque les nouveaux états
+        if self.is_state_immune() {
+            return;
+        }
+
+        // Cooldown check
+        if !self.can_apply_state(ElementalStateKind::Seismic) {
+            return;
+        }
+
         if let Some(state) = self
             .elemental_states
             .iter_mut()
@@ -404,19 +570,39 @@ impl Enemy {
                 strength: stun_duration,
             });
         }
+
+        self.trigger_state_cooldown(ElementalStateKind::Seismic);
     }
 
     /// Applique l'état Froid - si Trempé, déclenche Gelé
     /// Retourne true si la cible a été gelée
+    /// Option 1: Bloqué par l'immunité post-Gel
+    /// Option 5: Quand Gel se déclenche, Froid est consommé
     pub fn apply_cold(&mut self, freeze_duration: f32, cold_duration: f32) -> bool {
+        // Gelé bloque les nouveaux états (y compris re-freeze)
+        if self.is_state_immune() {
+            return false;
+        }
+
+        // Option 1: Immunité post-Gel bloque Froid
+        if self.freeze_immunity > 0.0 {
+            return false;
+        }
+
+        // Cooldown check
+        if !self.can_apply_state(ElementalStateKind::Cold) {
+            return false;
+        }
+
         // Si la cible est Trempée, elle devient Gelée
         if self.has_state(ElementalStateKind::Soaked) {
-            // Supprime Trempé et Froid
+            // Option 5: Supprime Trempé et Froid (les deux sont consommés)
             self.elemental_states.retain(|s| {
                 s.kind != ElementalStateKind::Soaked && s.kind != ElementalStateKind::Cold
             });
-            // Applique Gelé
+            // Applique Gelé (qui déclenchera l'immunité post-Gel)
             self.apply_frozen(freeze_duration);
+            self.trigger_state_cooldown(ElementalStateKind::Cold);
             return true;
         }
 
@@ -436,27 +622,30 @@ impl Enemy {
                 strength: freeze_duration, // Durée du freeze si combiné avec Trempé
             });
         }
+
+        self.trigger_state_cooldown(ElementalStateKind::Cold);
         false
     }
 
     /// Applique l'état Gelé (stun complet)
+    /// Note: Frozen ne peut pas être ré-appliqué tant que l'ennemi est déjà gelé
+    /// Option 1: Déclenche l'immunité post-Gel quand l'état Frozen expire
     pub fn apply_frozen(&mut self, duration: f32) {
-        if let Some(state) = self
-            .elemental_states
-            .iter_mut()
-            .find(|s| s.kind == ElementalStateKind::Frozen)
-        {
-            // Refresh duration
-            state.remaining = state.remaining.max(duration);
-        } else {
-            self.elemental_states.push(ElementalState {
-                kind: ElementalStateKind::Frozen,
-                remaining: duration,
-                strength: duration,
-            });
+        // Si déjà gelé, ne pas ré-appliquer (empêche le perma-freeze)
+        if self.has_state(ElementalStateKind::Frozen) {
+            return;
         }
+
+        self.elemental_states.push(ElementalState {
+            kind: ElementalStateKind::Frozen,
+            remaining: duration,
+            strength: duration,
+        });
         // Applique également le stun
         self.apply_stun(duration);
+        // Option 1: Déclenche l'immunité post-Gel (sera active quand Frozen expire)
+        // On l'ajoute maintenant pour qu'elle soit prête quand le gel se termine
+        self.freeze_immunity = duration + Self::FREEZE_IMMUNITY_DURATION;
     }
 
     /// Vérifie si l'ennemi a un état spécifique

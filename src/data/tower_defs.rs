@@ -140,6 +140,7 @@ pub enum TowerAction {
         min_states: u8,
         damage_percent: f32,
         radius: f32,
+        tick_rate: f32,
     },
 
     /// Tir aléatoire sur la carte (bombardement)
@@ -178,6 +179,7 @@ pub enum TowerAction {
         damage_percent: f32,
         cold_duration: f32,
         freeze_duration: f32,
+        tick_rate: f32, // Intervalle entre chaque tick (en secondes)
     },
 }
 
@@ -370,8 +372,8 @@ pub struct TowerDef {
     pub base_cost: u32,
     /// Priorité de ciblage par défaut
     pub default_target_priority: TargetPriority,
-    /// Exactement 3 compétences par tourelle
-    pub skills: [TowerSkillDef; 3],
+    /// Compétences de la tourelle
+    pub skills: Vec<TowerSkillDef>,
 }
 
 // --- Resolved actions (runtime, after applying upgrades) ---
@@ -423,6 +425,7 @@ pub enum ResolvedAction {
         min_states: u8,
         damage_percent: f32,
         radius: f32,
+        tick_rate: f32,
     },
     RandomBombard {
         damage: f32,
@@ -451,6 +454,7 @@ pub enum ResolvedAction {
         damage_percent: f32,
         cold_duration: f32,
         freeze_duration: f32,
+        tick_rate: f32,
     },
 }
 
@@ -659,6 +663,7 @@ impl TowerActionDef {
                 min_states,
                 damage_percent,
                 radius,
+                tick_rate,
             } => {
                 let mut dp = *damage_percent;
                 let mut rad = *radius;
@@ -677,6 +682,7 @@ impl TowerActionDef {
                     min_states: *min_states,
                     damage_percent: dp,
                     radius: rad,
+                    tick_rate: *tick_rate,
                 }
             }
             TowerAction::RandomBombard { damage, radius } => {
@@ -796,6 +802,7 @@ impl TowerActionDef {
                 damage_percent,
                 cold_duration,
                 freeze_duration,
+                tick_rate,
             } => {
                 let mut rad = *radius;
                 let mut dmg_pct = *damage_percent;
@@ -823,6 +830,7 @@ impl TowerActionDef {
                     damage_percent: dmg_pct,
                     cold_duration: cold_dur,
                     freeze_duration: freeze_dur,
+                    tick_rate: *tick_rate,
                 }
             }
         }
@@ -1150,11 +1158,6 @@ impl TowerBuilder {
     }
 
     pub fn build(self) -> TowerDef {
-        assert_eq!(
-            self.skills.len(),
-            3,
-            "Une tourelle doit avoir exactement 3 competences"
-        );
         TowerDef {
             kind: self.kind,
             name: self.name,
@@ -1162,11 +1165,7 @@ impl TowerBuilder {
             element: self.element,
             base_cost: self.base_cost,
             default_target_priority: self.default_target_priority,
-            skills: [
-                self.skills[0].clone(),
-                self.skills[1].clone(),
-                self.skills[2].clone(),
-            ],
+            skills: self.skills,
         }
     }
 }
@@ -1581,6 +1580,7 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                             min_states: 3,
                             damage_percent: 10.0,
                             radius: 120.0,
+                            tick_rate: 1.0, // 1 tick par seconde
                         },
                         vec![
                             (
@@ -1672,6 +1672,7 @@ pub fn all_tower_defs() -> Vec<TowerDef> {
                             damage_percent: 3.0, // 3% HP par tick
                             cold_duration: 4.0,
                             freeze_duration: 2.5,
+                            tick_rate: 3.0, // 1 tick toutes les 3 secondes
                         },
                         vec![
                             ("Rayon", ActionUpgradeTarget::AoeRadius, 15.0, 5),

@@ -282,26 +282,17 @@ pub fn draw_tower_auras(window: &mut Window, center: Point<Pixels>, tower: &Towe
     let screen_pos = to_screen(center, &tower.position);
     let aura_zones = tower.active_aura_zones();
 
-    for (radius, (h, s, l)) in aura_zones {
-        // Animation de pulsation subtile
-        let pulse = 1.0 + 0.05 * (elapsed * 2.0).sin();
-        let animated_radius = radius * pulse;
+    for (idx, (radius, (h, s, l))) in aura_zones.into_iter().enumerate() {
+        // Cercle rempli très subtil (opacité réduite)
+        draw_circle(window, screen_pos, radius, Hsla { h, s, l, a: 0.03 });
 
-        // Cercle rempli très transparent
-        draw_circle(
-            window,
-            screen_pos,
-            animated_radius,
-            Hsla { h, s, l, a: 0.08 },
-        );
-
-        // Contour de l'aura (plus visible)
-        draw_aura_outline(window, screen_pos, animated_radius, h, s, l, elapsed);
+        // Particules qui tournent autour de l'aura
+        draw_orbiting_particles(window, screen_pos, radius, h, s, l, elapsed, idx);
     }
 }
 
-/// Dessine le contour animé d'une aura
-fn draw_aura_outline(
+/// Dessine des particules qui orbitent autour de l'aura
+fn draw_orbiting_particles(
     window: &mut Window,
     screen_pos: Point<Pixels>,
     radius: f32,
@@ -309,67 +300,76 @@ fn draw_aura_outline(
     s: f32,
     l: f32,
     elapsed: f32,
+    aura_index: usize,
 ) {
-    let segments = 32u32;
-    let dash_length = 8; // Nombre de segments par dash
+    // Nombre de particules selon la taille de l'aura
+    let particle_count = ((radius / 30.0) as usize).max(3).min(8);
 
-    for i in 0..segments {
-        // Animation de rotation du pattern
-        let rotation_offset = (elapsed * 0.5) % 1.0;
-        let adjusted_i = (i as f32 + rotation_offset * segments as f32) as u32 % segments;
+    // Vitesse de rotation (varie légèrement selon l'index pour différencier les auras)
+    let rotation_speed = 0.8 + (aura_index as f32 * 0.2);
 
-        // Pattern de tirets (dash on/off)
-        let dash_index = adjusted_i / dash_length as u32;
-        let is_visible = dash_index % 2 == 0;
+    for i in 0..particle_count {
+        // Position angulaire de base + rotation animée
+        let base_angle = (2.0 * std::f32::consts::PI * i as f32) / particle_count as f32;
+        let angle = base_angle + elapsed * rotation_speed;
 
-        if !is_visible {
-            continue;
-        }
+        // Position de la particule sur le cercle
+        let particle_x = screen_pos.x + px(radius * angle.cos());
+        let particle_y = screen_pos.y + px(radius * angle.sin());
+        let particle_pos = point(particle_x, particle_y);
 
-        let angle1 = (2.0 * std::f32::consts::PI * i as f32) / segments as f32;
-        let angle2 = (2.0 * std::f32::consts::PI * (i + 1) as f32) / segments as f32;
+        // Taille de la particule (légère variation)
+        let size = 3.0 + (elapsed * 3.0 + i as f32).sin() * 0.5;
 
-        let p1 = point(
-            screen_pos.x + px(radius * angle1.cos()),
-            screen_pos.y + px(radius * angle1.sin()),
-        );
-        let p2 = point(
-            screen_pos.x + px(radius * angle2.cos()),
-            screen_pos.y + px(radius * angle2.sin()),
-        );
+        // Couleur avec légère variation de luminosité
+        let particle_l = l + 0.1 + (elapsed * 2.0 + i as f32).sin() * 0.05;
 
-        let dx = f32::from(p2.x) - f32::from(p1.x);
-        let dy = f32::from(p2.y) - f32::from(p1.y);
-        let len = (dx * dx + dy * dy).sqrt();
-        if len < 0.1 {
-            continue;
-        }
-        let nx = -dy / len;
-        let ny = dx / len;
-        let half_width = 1.0;
-
-        let points = vec![
-            point(p1.x + px(nx * half_width), p1.y + px(ny * half_width)),
-            point(p2.x + px(nx * half_width), p2.y + px(ny * half_width)),
-            point(p2.x - px(nx * half_width), p2.y - px(ny * half_width)),
-            point(p1.x - px(nx * half_width), p1.y - px(ny * half_width)),
-        ];
-
-        let mut path = Path::new(points[0]);
-        for p in &points[1..] {
-            path.line_to(*p);
-        }
-        path.line_to(points[0]);
-        window.paint_path(
-            path,
+        // Dessine la particule (petit losange/diamant)
+        draw_diamond(
+            window,
+            particle_pos,
+            size,
             Hsla {
                 h,
                 s,
-                l: l + 0.1,
-                a: 0.4,
+                l: particle_l,
+                a: 0.7,
+            },
+        );
+
+        // Légère trainée derrière la particule
+        let trail_angle = angle - 0.15;
+        let trail_x = screen_pos.x + px(radius * trail_angle.cos());
+        let trail_y = screen_pos.y + px(radius * trail_angle.sin());
+        draw_diamond(
+            window,
+            point(trail_x, trail_y),
+            size * 0.6,
+            Hsla {
+                h,
+                s,
+                l: particle_l,
+                a: 0.3,
             },
         );
     }
+}
+
+/// Dessine un petit losange (diamant)
+fn draw_diamond(window: &mut Window, pos: Point<Pixels>, size: f32, color: Hsla) {
+    let points = vec![
+        point(pos.x, pos.y - px(size)),       // Haut
+        point(pos.x + px(size * 0.6), pos.y), // Droite
+        point(pos.x, pos.y + px(size)),       // Bas
+        point(pos.x - px(size * 0.6), pos.y), // Gauche
+    ];
+
+    let mut path = Path::new(points[0]);
+    for p in &points[1..] {
+        path.line_to(*p);
+    }
+    path.line_to(points[0]);
+    window.paint_path(path, color);
 }
 
 pub fn draw_projectile(window: &mut Window, center: Point<Pixels>, proj: &Projectile) {

@@ -207,7 +207,8 @@ fn selected_tower_section(
 
     // Build skill icons row
     let def = get_def(tower.kind);
-    let skill_icons: Vec<AnyElement> = (0..3)
+    let skill_count = def.skills.len();
+    let skill_icons: Vec<AnyElement> = (0..skill_count)
         .map(|skill_idx| {
             let skill_def = &def.skills[skill_idx];
             let skill_state = &tower.skills[skill_idx];
@@ -334,13 +335,13 @@ fn selected_tower_section(
 
     // Build stat rows for the active skill only
     // Now only one skill is active at a time (whether Active or Passive type)
-    let active_skill_name = tower
+    let (active_skill_name, active_skill_desc) = tower
         .active_skill_index
         .map(|idx| {
             let def = get_def(tower.kind);
-            def.skills[idx].name
+            (def.skills[idx].name, def.skills[idx].description)
         })
-        .unwrap_or("");
+        .unwrap_or(("", ""));
 
     let upgrades = if has_notification_settings {
         Vec::new()
@@ -350,7 +351,7 @@ fn selected_tower_section(
 
     let mut stat_elements: Vec<AnyElement> = Vec::new();
 
-    // Show active skill name
+    // Show active skill name and description
     if !active_skill_name.is_empty() {
         stat_elements.push(
             div()
@@ -359,6 +360,15 @@ fn selected_tower_section(
                 .child(format!("Active: {}", active_skill_name))
                 .into_any_element(),
         );
+        if !active_skill_desc.is_empty() {
+            stat_elements.push(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x888888))
+                    .child(active_skill_desc)
+                    .into_any_element(),
+            );
+        }
     }
 
     for (upgrade_id, uname, prop) in &upgrades {
@@ -530,11 +540,11 @@ fn selected_tower_section(
             )
     });
 
-    // Get active skill name for display
-    let active_skill_name = tower
+    // Get active skill name and description for display
+    let (active_skill_name, active_skill_description) = tower
         .active_skill_index
-        .map(|idx| def.skills[idx].name)
-        .unwrap_or("Aucune");
+        .map(|idx| (def.skills[idx].name, def.skills[idx].description))
+        .unwrap_or(("Aucune", ""));
 
     Some(
         div()
@@ -565,13 +575,25 @@ fn selected_tower_section(
                     )
                     .child(h_flex().gap_1().children(skill_icons)),
             )
-            // Active skill name
+            // Active skill name and description
             .when(!has_notification_settings, |this| {
                 this.child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x44aaff))
-                        .child(format!("Active: {}", active_skill_name)),
+                    v_flex()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(0x44aaff))
+                                .child(format!("Active: {}", active_skill_name)),
+                        )
+                        .when(!active_skill_description.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x888888))
+                                    .child(active_skill_description),
+                            )
+                        }),
                 )
             })
             // Stats with inline upgrades (only for active skill)

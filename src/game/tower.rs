@@ -129,9 +129,9 @@ pub struct Tower {
     pub kind: TowerKind,
     pub element: TowerElement,
     pub name: &'static str,
-    /// État des 3 compétences
-    pub skills: [SkillState; 3],
-    /// Index de la compétence Active actuellement sélectionnée (0, 1, ou 2)
+    /// État des compétences
+    pub skills: Vec<SkillState>,
+    /// Index de la compétence Active actuellement sélectionnée
     pub active_skill_index: Option<usize>,
     /// Cooldown d'attaque partagé
     pub attack_cooldown: f32,
@@ -145,16 +145,25 @@ pub struct Tower {
     pub notification_settings: Option<NotificationSettings>,
     /// Priorité de ciblage
     pub target_priority: TargetPriority,
+    /// Cooldown pour les effets passifs à tick rate (ex: Glaciation)
+    pub passive_cooldowns: Vec<f32>,
 }
 
 impl Tower {
     pub fn from_def(id: usize, kind: TowerKind, position: Point2D) -> Self {
         let def = get_def(kind);
 
-        // Première compétence débloquée et active par défaut
-        let first_skill_state =
-            SkillState::Active(SkillState::create_runtime_state(&def.skills[0]));
-        let skills = [first_skill_state, SkillState::Locked, SkillState::Locked];
+        // Première compétence débloquée et active par défaut, les autres verrouillées
+        let mut skills: Vec<SkillState> = Vec::with_capacity(def.skills.len());
+        for (idx, _skill_def) in def.skills.iter().enumerate() {
+            if idx == 0 {
+                skills.push(SkillState::Active(SkillState::create_runtime_state(
+                    &def.skills[0],
+                )));
+            } else {
+                skills.push(SkillState::Locked);
+            }
+        }
 
         // Déterminer si la première skill est Active (attaque) ou Passive
         let active_skill_index = if def.skills[0].skill_type == SkillType::Active {
@@ -173,6 +182,9 @@ impl Tower {
             None
         };
 
+        // Initialise les cooldowns passifs (un par skill)
+        let passive_cooldowns = vec![0.0; def.skills.len()];
+
         Self {
             id,
             position,
@@ -187,6 +199,7 @@ impl Tower {
             gold_accumulator: 0.0,
             notification_settings,
             target_priority: def.default_target_priority,
+            passive_cooldowns,
         }
     }
 

@@ -783,12 +783,24 @@ impl GameState {
 
         // 7c. Process passive tower effects (auras, lifesteal, conditional damage)
         let mut player_heal = 0.0f32;
-        for tower in &self.towers {
-            let tower_pos = tower.position.clone();
-            let resolved = tower.resolved_actions();
-            let element = tower.element;
 
-            for action in &resolved {
+        // First, collect tower data and decrement cooldowns
+        for tower in &mut self.towers {
+            for cd in &mut tower.passive_cooldowns {
+                if *cd > 0.0 {
+                    *cd -= dt;
+                }
+            }
+        }
+
+        // Then process effects
+        for tower_idx in 0..self.towers.len() {
+            let tower_pos = self.towers[tower_idx].position.clone();
+            let resolved = self.towers[tower_idx].resolved_actions();
+            let element = self.towers[tower_idx].element;
+            let active_skill_idx = self.towers[tower_idx].active_skill_index;
+
+            for (action_idx, action) in resolved.iter().enumerate() {
                 match action {
                     ResolvedAction::AuraEffect {
                         radius,
@@ -823,15 +835,24 @@ impl GameState {
                         min_states,
                         damage_percent,
                         radius,
+                        tick_rate,
                     } => {
-                        // Deal %HP damage to enemies with enough states
-                        for enemy in &mut self.enemies {
-                            if tower_pos.distance_to(&enemy.position) <= *radius {
-                                if enemy.count_states() >= *min_states as usize {
-                                    let dmg = enemy.max_hp * damage_percent / 100.0;
-                                    enemy.take_damage(dmg, element);
+                        // Check cooldown - use active skill index for cooldown tracking
+                        let cooldown_idx = active_skill_idx.unwrap_or(0);
+                        if cooldown_idx < self.towers[tower_idx].passive_cooldowns.len()
+                            && self.towers[tower_idx].passive_cooldowns[cooldown_idx] <= 0.0
+                        {
+                            // Deal %HP damage to enemies with enough states
+                            for enemy in &mut self.enemies {
+                                if tower_pos.distance_to(&enemy.position) <= *radius {
+                                    if enemy.count_states() >= *min_states as usize {
+                                        let dmg = enemy.max_hp * damage_percent / 100.0;
+                                        enemy.take_damage(dmg, element);
+                                    }
                                 }
                             }
+                            // Reset cooldown
+                            self.towers[tower_idx].passive_cooldowns[cooldown_idx] = *tick_rate;
                         }
                     }
                     ResolvedAction::ColdAura {
@@ -851,14 +872,23 @@ impl GameState {
                         damage_percent,
                         cold_duration,
                         freeze_duration,
+                        tick_rate,
                     } => {
-                        // Deal %HP damage and apply cold to all enemies in range
-                        for enemy in &mut self.enemies {
-                            if tower_pos.distance_to(&enemy.position) <= *radius {
-                                let dmg = enemy.hp * damage_percent / 100.0;
-                                enemy.take_damage(dmg, element);
-                                enemy.apply_cold(*freeze_duration, *cold_duration);
+                        // Check cooldown - use active skill index for cooldown tracking
+                        let cooldown_idx = active_skill_idx.unwrap_or(0);
+                        if cooldown_idx < self.towers[tower_idx].passive_cooldowns.len()
+                            && self.towers[tower_idx].passive_cooldowns[cooldown_idx] <= 0.0
+                        {
+                            // Deal %HP damage and apply cold to all enemies in range
+                            for enemy in &mut self.enemies {
+                                if tower_pos.distance_to(&enemy.position) <= *radius {
+                                    let dmg = enemy.hp * damage_percent / 100.0;
+                                    enemy.take_damage(dmg, element);
+                                    enemy.apply_cold(*freeze_duration, *cold_duration);
+                                }
                             }
+                            // Reset cooldown
+                            self.towers[tower_idx].passive_cooldowns[cooldown_idx] = *tick_rate;
                         }
                     }
                     _ => {}

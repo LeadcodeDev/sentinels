@@ -72,64 +72,142 @@ impl WaveManager {
         vec![Enemy::new(id, info.shape, self.current_wave, spawn_pos)]
     }
 
+    /// Génère une vague avec une composition inspirée de D&D
+    ///
+    /// ## Phases de difficulté :
+    /// - Phase 1 (1-20): Introduction progressive des types
+    /// - Phase 2 (21-50): Composition variée, nombre croissant
+    /// - Phase 3 (51-100): Ennemis lourds dominent
+    /// - Phase 4 (101+): Hordes massives exponentielles
     fn generate_wave(&self, wave_num: u32) -> Vec<EnemySpawnInfo> {
         let mut enemies = Vec::new();
-        // More enemies: starts at 8, grows by 3 per wave
-        let count = 8 + wave_num * 3;
+
+        // Calcul du nombre d'ennemis selon la phase
+        let count = self.calculate_enemy_count(wave_num);
 
         for _ in 0..count {
-            let shape = if wave_num <= 2 {
-                // Waves 1-2: mostly scouts
-                if rand::thread_rng().r#gen::<f32>() < 0.85 {
+            let shape = self.pick_enemy_shape(wave_num);
+            enemies.push(EnemySpawnInfo { shape });
+        }
+
+        // Ajout des boss
+        self.add_bosses(&mut enemies, wave_num);
+
+        enemies
+    }
+
+    /// Calcule le nombre d'ennemis pour une vague
+    fn calculate_enemy_count(&self, wave_num: u32) -> u32 {
+        match wave_num {
+            // Phase 1 : Tiers D&D (1-20)
+            // Croissance linéaire douce : 6 + 2 par vague
+            1..=20 => 6 + wave_num * 2,
+
+            // Phase 2 : Paragon (21-50)
+            // Croissance modérée : base 46 + 3 par vague
+            21..=50 => {
+                let base = 6 + 20 * 2; // 46 à la vague 20
+                base + (wave_num - 20) * 3
+            }
+
+            // Phase 3 : Epic (51-100)
+            // Croissance plus forte : base 136 + 4 par vague
+            51..=100 => {
+                let base = 46 + 30 * 3; // 136 à la vague 50
+                base + (wave_num - 50) * 4
+            }
+
+            // Phase 4 : Mythique (101+)
+            // Croissance exponentielle : nombre double toutes les ~25 vagues
+            _ => {
+                let base = 136 + 50 * 4; // 336 à la vague 100
+                let waves_past_100 = (wave_num - 100) as f32;
+                let exp_factor = 1.03_f32.powf(waves_past_100); // +3% par vague
+                (base as f32 * exp_factor) as u32
+            }
+        }
+    }
+
+    /// Sélectionne un type d'ennemi selon la vague
+    fn pick_enemy_shape(&self, wave_num: u32) -> EnemyShape {
+        let r: f32 = rand::thread_rng().r#gen();
+
+        match wave_num {
+            // Tier 1 (1-5): Éclaireurs dominent, introduction soldats
+            1..=2 => {
+                if r < 0.90 {
                     EnemyShape::Triangle
                 } else {
                     EnemyShape::Square
                 }
-            } else if wave_num <= 4 {
-                // Waves 3-4: introduce soldiers
-                let r: f32 = rand::thread_rng().r#gen();
-                if r < 0.5 {
+            }
+            3..=5 => {
+                if r < 0.60 {
                     EnemyShape::Triangle
                 } else {
                     EnemyShape::Square
                 }
-            } else if wave_num <= 7 {
-                // Waves 5-7: introduce tanks
-                let r: f32 = rand::thread_rng().r#gen();
-                if r < 0.35 {
+            }
+
+            // Tier 2 (6-10): Introduction tanks
+            6..=7 => {
+                if r < 0.40 {
                     EnemyShape::Triangle
-                } else if r < 0.65 {
+                } else if r < 0.75 {
                     EnemyShape::Square
                 } else {
                     EnemyShape::Pentagon
                 }
-            } else if wave_num <= 10 {
-                // Waves 8-10: introduce destructors
-                let r: f32 = rand::thread_rng().r#gen();
+            }
+            8..=10 => {
+                if r < 0.30 {
+                    EnemyShape::Triangle
+                } else if r < 0.60 {
+                    EnemyShape::Square
+                } else {
+                    EnemyShape::Pentagon
+                }
+            }
+
+            // Tier 3 (11-15): Introduction destructeurs
+            11..=12 => {
                 if r < 0.25 {
                     EnemyShape::Triangle
                 } else if r < 0.50 {
                     EnemyShape::Square
-                } else if r < 0.75 {
+                } else if r < 0.80 {
                     EnemyShape::Pentagon
                 } else {
                     EnemyShape::Hexagon
                 }
-            } else if wave_num <= 15 {
-                // Waves 11-15: balanced mix
-                let r: f32 = rand::thread_rng().r#gen();
+            }
+            13..=15 => {
                 if r < 0.20 {
                     EnemyShape::Triangle
-                } else if r < 0.40 {
+                } else if r < 0.45 {
                     EnemyShape::Square
-                } else if r < 0.65 {
+                } else if r < 0.70 {
                     EnemyShape::Pentagon
                 } else {
                     EnemyShape::Hexagon
                 }
-            } else {
-                // Waves 16+: heavy mix, fewer scouts
-                let r: f32 = rand::thread_rng().r#gen();
+            }
+
+            // Tier 4 (16-20): Mix équilibré
+            16..=20 => {
+                if r < 0.15 {
+                    EnemyShape::Triangle
+                } else if r < 0.35 {
+                    EnemyShape::Square
+                } else if r < 0.60 {
+                    EnemyShape::Pentagon
+                } else {
+                    EnemyShape::Hexagon
+                }
+            }
+
+            // Phase 2 Paragon (21-50): Moins d'éclaireurs
+            21..=35 => {
                 if r < 0.10 {
                     EnemyShape::Triangle
                 } else if r < 0.30 {
@@ -139,14 +217,70 @@ impl WaveManager {
                 } else {
                     EnemyShape::Hexagon
                 }
+            }
+            36..=50 => {
+                if r < 0.05 {
+                    EnemyShape::Triangle
+                } else if r < 0.25 {
+                    EnemyShape::Square
+                } else if r < 0.55 {
+                    EnemyShape::Pentagon
+                } else {
+                    EnemyShape::Hexagon
+                }
+            }
+
+            // Phase 3 Epic (51-100): Ennemis lourds dominent
+            51..=75 => {
+                if r < 0.05 {
+                    EnemyShape::Triangle
+                } else if r < 0.20 {
+                    EnemyShape::Square
+                } else if r < 0.50 {
+                    EnemyShape::Pentagon
+                } else {
+                    EnemyShape::Hexagon
+                }
+            }
+            76..=100 => {
+                if r < 0.15 {
+                    EnemyShape::Square
+                } else if r < 0.45 {
+                    EnemyShape::Pentagon
+                } else {
+                    EnemyShape::Hexagon
+                }
+            }
+
+            // Phase 4 Mythique (101+): Tanks et destructeurs uniquement
+            _ => {
+                if r < 0.40 {
+                    EnemyShape::Pentagon
+                } else {
+                    EnemyShape::Hexagon
+                }
+            }
+        }
+    }
+
+    /// Ajoute les boss à la vague
+    fn add_bosses(&self, enemies: &mut Vec<EnemySpawnInfo>, wave_num: u32) {
+        // Boss toutes les 5 vagues à partir de la vague 5
+        if wave_num >= 5 && wave_num % 5 == 0 {
+            let boss_count = match wave_num {
+                5..=10 => 1,
+                11..=20 => 2,
+                21..=50 => 3 + (wave_num - 20) / 10,
+                51..=100 => 5 + (wave_num - 50) / 10,
+                _ => {
+                    // Mythique : croissance exponentielle des boss
+                    let base = 10;
+                    let waves_past_100 = (wave_num - 100) as f32;
+                    let exp = 1.05_f32.powf(waves_past_100 / 5.0);
+                    (base as f32 * exp) as u32
+                }
             };
 
-            enemies.push(EnemySpawnInfo { shape });
-        }
-
-        // Boss every 5 waves (starting wave 5)
-        if wave_num >= 5 && wave_num % 5 == 0 {
-            let boss_count = wave_num / 10 + 1;
             for _ in 0..boss_count {
                 enemies.push(EnemySpawnInfo {
                     shape: EnemyShape::Octagon,
@@ -154,7 +288,15 @@ impl WaveManager {
             }
         }
 
-        enemies
+        // Mini-boss (hexagons supplémentaires) toutes les 10 vagues après la 20
+        if wave_num > 20 && wave_num % 10 == 0 {
+            let mini_boss_count = (wave_num - 20) / 10;
+            for _ in 0..mini_boss_count {
+                enemies.push(EnemySpawnInfo {
+                    shape: EnemyShape::Hexagon,
+                });
+            }
+        }
     }
 
     fn random_edge_position(&self, viewport: (f32, f32)) -> Point2D {
